@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>病历录入</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/records.css?v=20260626_dirty2" />
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>病历录入</h1>
+          <p id="dbStatus">读取中</p>
+        </div>
+        <button id="newRecordButton" class="full primary">新建病历</button>
+        <input id="searchInput" class="search" placeholder="搜索姓名、电话、主诉" />
+        <div id="recordList" class="record-list"></div>
+      </aside>
+
+      <section class="form-pane">
+        <header class="form-toolbar">
+          <div>
+            <strong id="formTitle">新建病历</strong>
+            <span id="saveStatus">未保存</span>
+          </div>
+          <div class="toolbar-actions">
+            <a href="/" class="link-button">语音测试</a>
+            <button id="deleteButton" class="danger" disabled>删除</button>
+            <button id="saveButton" class="primary">保存病历</button>
+          </div>
+        </header>
+
+        <form id="recordForm" class="paper-form">
+          <section class="section compact">
+            <div class="grid basic-grid">
+              <label>
+                <span>姓名</span>
+                <input id="patientName" autocomplete="off" />
+              </label>
+              <label>
+                <span>性别</span>
+                <select id="patientGender">
+                  <option value=""></option>
+                  <option>女</option>
+                  <option>男</option>
+                </select>
+              </label>
+              <label>
+                <span>年龄</span>
+                <input id="patientAge" inputmode="numeric" />
+              </label>
+              <label>
+                <span>电话</span>
+                <input id="patientPhone" inputmode="tel" />
+              </label>
+              <label>
+                <span>建档时间</span>
+                <input id="recordDate" type="date" />
+              </label>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="field-head">
+              <label for="chiefComplaint">主诉</label>
+              <button type="button" class="voice-button" data-target="chiefComplaint">录音</button>
+            </div>
+            <textarea id="chiefComplaint" rows="5"></textarea>
+          </section>
+
+          <section class="section two-col">
+            <div>
+              <div class="field-head">
+                <label for="pastHistory">既往史</label>
+                <button type="button" class="voice-button" data-target="pastHistory">录音</button>
+              </div>
+              <textarea id="pastHistory" rows="4"></textarea>
+            </div>
+            <div>
+              <div class="field-head">
+                <label for="allergyHistory">过敏史</label>
+                <button type="button" class="voice-button" data-target="allergyHistory">录音</button>
+              </div>
+              <textarea id="allergyHistory" rows="4"></textarea>
+            </div>
+          </section>
+
+          <section class="section">
+            <h2>体征表现</h2>
+            <div id="symptomOptions" class="check-grid"></div>
+            <div class="grid vital-grid">
+              <label>
+                <span>血压</span>
+                <input id="bloodPressure" placeholder="如 120/80" />
+              </label>
+              <label>
+                <span>心率</span>
+                <input id="heartRate" />
+              </label>
+              <label>
+                <span>血糖</span>
+                <input id="bloodSugar" />
+              </label>
+              <label>
+                <span>尿酸</span>
+                <input id="uricAcid" />
+              </label>
+              <label>
+                <span>夜尿</span>
+                <input id="nightUrineCount" placeholder="次/晚" />
+              </label>
+            </div>
+          </section>
+
+          <section class="section">
+            <h2>月经</h2>
+            <div id="menstrualOptions" class="check-grid"></div>
+          </section>
+
+          <section class="section">
+            <div class="field-head">
+              <label for="tonguePulse">舌脉象</label>
+              <button type="button" class="voice-button" data-target="tonguePulse">录音</button>
+            </div>
+            <textarea id="tonguePulse" rows="3"></textarea>
+          </section>
+
+          <section class="section">
+            <h2>调摄建议</h2>
+            <div class="advice-grid">
+              <div>
+                <h3>饮食</h3>
+                <div id="dietAdviceOptions" class="check-grid"></div>
+              </div>
+              <div>
+                <h3>生活注意</h3>
+                <div id="lifestyleAdviceOptions" class="check-grid"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section visits-section">
+            <div class="section-head-inline">
+              <h2>复诊记录</h2>
+              <button id="addVisitButton" type="button">增加复诊</button>
+            </div>
+            <div id="visitBlocks" class="visit-blocks"></div>
+          </section>
+
+          <section class="section">
+            <label for="notes" class="plain-label">备注</label>
+            <textarea id="notes" rows="3"></textarea>
+          </section>
+        </form>
+      </section>
+    </main>
+
+    <section id="voicePanel" class="voice-panel" hidden>
+      <div>
+        <strong id="voiceTitle">识别结果</strong>
+        <span id="voiceMeta">待确认</span>
+      </div>
+      <textarea id="voiceResult" rows="3"></textarea>
+      <div class="voice-actions">
+        <button id="voiceAppendButton" type="button">追加</button>
+        <button id="voiceReplaceButton" type="button">替换</button>
+        <button id="voiceCancelButton" type="button">取消</button>
+      </div>
+    </section>
+
+    <script src="/records.js?v=20260626_dirty2"></script>
+  </body>
+</html>

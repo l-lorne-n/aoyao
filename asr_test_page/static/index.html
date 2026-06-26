@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>语音识别测试页</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>病历语音识别测试</h1>
+          <p id="configText">正在读取配置</p>
+        </div>
+        <div class="status-pill" id="statusPill">待录音</div>
+      </header>
+
+      <section class="recorder-band">
+        <div class="meter-wrap" aria-label="录音音量">
+          <div class="meter-track">
+            <div id="levelBar" class="meter-level"></div>
+          </div>
+          <span id="timerText">00:00</span>
+        </div>
+
+        <div class="controls">
+          <button id="startButton" class="primary">开始录音</button>
+          <button id="stopButton" disabled>停止并识别</button>
+          <button id="resetButton" disabled>清空</button>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <label class="field-label" for="resultText">识别结果</label>
+        <textarea
+          id="resultText"
+          spellcheck="false"
+          placeholder="识别完成后会显示在这里，可直接修改。"
+        ></textarea>
+
+        <div class="meta-grid">
+          <div>
+            <span>音频时长</span>
+            <strong id="durationText">-</strong>
+          </div>
+          <div>
+            <span>接口耗时</span>
+            <strong id="latencyText">-</strong>
+          </div>
+          <div>
+            <span>音频大小</span>
+            <strong id="sizeText">-</strong>
+          </div>
+          <div>
+            <span>请求编号</span>
+            <strong id="requestIdText">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="history-section">
+        <div class="section-head">
+          <h2>测试记录</h2>
+          <button id="copyButton" disabled>复制结果</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>时长</th>
+              <th>耗时</th>
+              <th>结果</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr>
+              <td colspan="4" class="empty">暂无记录</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

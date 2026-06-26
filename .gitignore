@@ -1,0 +1,13 @@
+.env
+tecent_api_key.txt
+tencent_api_key.txt
+data/
+backups/
+mum_test/
+.agents/
+.codex/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.log
