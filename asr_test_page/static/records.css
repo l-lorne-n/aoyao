@@ -13,6 +13,10 @@ body {
   margin: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 button,
 input,
 select,
@@ -137,6 +141,7 @@ h3 {
 }
 
 .record-list {
+  flex: 1 1 auto;
   overflow: auto;
   padding-right: 2px;
 }
@@ -173,6 +178,17 @@ h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.record-no {
+  color: #126b5c;
+  font-weight: 750;
+}
+
+.sidebar-footer {
+  border-top: 1px solid #dde5ea;
+  margin-top: 10px;
+  padding-top: 10px;
 }
 
 .form-pane {
@@ -251,7 +267,7 @@ h3 {
 }
 
 .basic-grid {
-  grid-template-columns: 1.4fr 0.7fr 0.7fr 1.2fr 1fr;
+  grid-template-columns: 0.85fr 1.25fr 0.7fr 0.7fr 1.15fr 1fr;
 }
 
 .vital-grid {
@@ -396,6 +412,110 @@ textarea:focus {
   box-shadow: 0 14px 40px rgba(22, 35, 45, 0.18);
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(16, 26, 34, 0.34);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.export-dialog {
+  width: min(720px, calc(100vw - 36px));
+  max-height: min(720px, calc(100vh - 36px));
+  background: #fff;
+  border: 1px solid #cbd6dd;
+  border-radius: 8px;
+  box-shadow: 0 18px 52px rgba(14, 28, 38, 0.24);
+  display: flex;
+  flex-direction: column;
+}
+
+.export-header,
+.export-actions {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.export-header {
+  border-bottom: 1px solid #dce4e9;
+}
+
+.export-header strong,
+.export-header span {
+  display: block;
+}
+
+.export-body {
+  min-height: 0;
+  padding: 0 14px 12px;
+  overflow: hidden;
+}
+
+.export-record-list {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid #d8e1e6;
+  border-radius: 6px;
+}
+
+.export-item {
+  min-height: 62px;
+  padding: 9px 10px;
+  border-bottom: 1px solid #edf2f4;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.export-item:last-child {
+  border-bottom: 0;
+}
+
+.export-item:hover {
+  background: #f7faf9;
+}
+
+.export-item input {
+  width: 16px;
+  height: 16px;
+}
+
+.export-item strong,
+.export-item span {
+  display: block;
+}
+
+.export-item strong {
+  color: #24323e;
+}
+
+.export-item span {
+  color: #677580;
+  font-size: 12px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-actions {
+  border-top: 1px solid #dce4e9;
+  justify-content: flex-end;
+}
+
+.empty-export {
+  padding: 16px;
+  color: #65727d;
+}
+
 .voice-panel > div:first-child {
   display: flex;
   align-items: center;
@@ -459,6 +579,12 @@ textarea:focus {
   .toolbar-actions button,
   .toolbar-actions .link-button {
     flex: 1 1 110px;
+  }
+
+  .export-header,
+  .export-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .check-grid {

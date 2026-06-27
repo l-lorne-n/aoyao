@@ -4,6 +4,7 @@ import argparse
 import base64
 import datetime as dt
 import hashlib
+import html
 import hmac
 import importlib.util
 import io
@@ -29,7 +30,18 @@ APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
 STATIC_DIR = APP_DIR / "static"
 DATA_DIR = ROOT_DIR / "data"
+PDF_OUTPUT_DIR = ROOT_DIR / "output" / "pdf"
 DB_PATH = DATA_DIR / "aoyao_records.sqlite3"
+BUNDLED_SITE_PACKAGES = (
+    Path.home()
+    / ".cache"
+    / "codex-runtimes"
+    / "codex-primary-runtime"
+    / "dependencies"
+    / "python"
+    / "Lib"
+    / "site-packages"
+)
 
 TENCENT_ENDPOINT = "https://asr.tencentcloudapi.com"
 TENCENT_HOST = "asr.tencentcloudapi.com"
@@ -121,6 +133,7 @@ def init_database() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                record_no TEXT,
                 record_date TEXT,
                 name TEXT,
                 gender TEXT,
@@ -134,16 +147,32 @@ def init_database() -> None:
             )
             """
         )
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(records)").fetchall()
+        }
+        if "record_no" not in columns:
+            conn.execute("ALTER TABLE records ADD COLUMN record_no TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_updated ON records(updated_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_name ON records(name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_records_no ON records(record_no)")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_records_no_unique
+            ON records(record_no)
+            WHERE record_no IS NOT NULL AND record_no != ''
+            """
+        )
         conn.commit()
 
 
 def normalize_record(payload: dict[str, Any]) -> dict[str, Any]:
     patient = payload.get("patient") if isinstance(payload.get("patient"), dict) else {}
+    record_no = str(patient.get("recordNo", payload.get("recordNo", ""))).strip()
     normalized = {
         "id": payload.get("id"),
         "patient": {
+            "recordNo": record_no,
             "name": str(patient.get("name", "")).strip(),
             "gender": str(patient.get("gender", "")).strip(),
             "age": str(patient.get("age", "")).strip(),
@@ -169,18 +198,55 @@ def record_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data["id"] = row["id"]
     data["createdAt"] = row["created_at"]
     data["updatedAt"] = row["updated_at"]
+    data["recordNo"] = row["record_no"] or ""
+    patient = data.get("patient") if isinstance(data.get("patient"), dict) else {}
+    patient["recordNo"] = row["record_no"] or patient.get("recordNo", "")
+    data["patient"] = patient
     return data
+
+
+def normalize_record_id(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        record_id = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("病历 ID 无效。") from exc
+    return record_id if record_id > 0 else None
+
+
+def duplicate_record_no_message(record_no: str, row: sqlite3.Row) -> str:
+    name = row["name"] or "未填写姓名"
+    return f"病历编号 {record_no} 已被 {name}（内部ID {row['id']}）使用，请换一个编号。"
+
+
+def ensure_unique_record_no(conn: sqlite3.Connection, record_no: str, record_id: int | None) -> None:
+    if not record_no:
+        return
+    duplicate = conn.execute(
+        """
+        SELECT id, name, record_no
+        FROM records
+        WHERE record_no = ? AND id != ?
+        LIMIT 1
+        """,
+        (record_no, record_id or -1),
+    ).fetchone()
+    if duplicate:
+        raise ValueError(duplicate_record_no_message(record_no, duplicate))
 
 
 def save_record(payload: dict[str, Any]) -> dict[str, Any]:
     record = normalize_record(payload)
     patient = record["patient"]
+    record_no = patient["recordNo"]
     now = utc_now_text()
     data_json = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
 
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        record_id = record.get("id")
+        record_id = normalize_record_id(record.get("id"))
+        ensure_unique_record_no(conn, record_no, record_id)
         if record_id:
             existing = conn.execute("SELECT id FROM records WHERE id = ?", (record_id,)).fetchone()
         else:
@@ -190,13 +256,14 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
             conn.execute(
                 """
                 UPDATE records
-                SET updated_at = ?, record_date = ?, name = ?, gender = ?, age = ?,
+                SET updated_at = ?, record_no = ?, record_date = ?, name = ?, gender = ?, age = ?,
                     phone = ?, chief_complaint = ?, past_history = ?, allergy_history = ?,
                     tongue_pulse = ?, data_json = ?
                 WHERE id = ?
                 """,
                 (
                     now,
+                    record_no,
                     patient["recordDate"],
                     patient["name"],
                     patient["gender"],
@@ -214,14 +281,15 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
             cursor = conn.execute(
                 """
                 INSERT INTO records (
-                    created_at, updated_at, record_date, name, gender, age, phone,
+                    created_at, updated_at, record_no, record_date, name, gender, age, phone,
                     chief_complaint, past_history, allergy_history, tongue_pulse, data_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     now,
                     now,
+                    record_no,
                     patient["recordDate"],
                     patient["name"],
                     patient["gender"],
@@ -247,16 +315,16 @@ def list_records(query: str = "") -> list[dict[str, Any]]:
     if query:
         like = f"%{query}%"
         where = """
-        WHERE name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?
+        WHERE record_no LIKE ? OR name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?
            OR past_history LIKE ? OR allergy_history LIKE ? OR tongue_pulse LIKE ?
         """
-        params = [like, like, like, like, like, like]
+        params = [like, like, like, like, like, like, like]
 
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             f"""
-            SELECT id, created_at, updated_at, record_date, name, gender, age, phone,
+            SELECT id, created_at, updated_at, record_no, record_date, name, gender, age, phone,
                    chief_complaint
             FROM records
             {where}
@@ -269,6 +337,7 @@ def list_records(query: str = "") -> list[dict[str, Any]]:
     return [
         {
             "id": row["id"],
+            "recordNo": row["record_no"] or "",
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
             "recordDate": row["record_date"] or "",
@@ -294,6 +363,258 @@ def delete_record(record_id: int) -> bool:
         cursor = conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+def next_record_no() -> str:
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT record_no FROM records WHERE record_no IS NOT NULL AND record_no != ''"
+        ).fetchall()
+    used: set[int] = set()
+    for (raw_no,) in rows:
+        text = str(raw_no).strip()
+        if text.isdigit():
+            used.add(int(text))
+    candidate = 1
+    while candidate in used:
+        candidate += 1
+    return str(candidate)
+
+
+def ensure_pdf_dependencies() -> None:
+    if importlib.util.find_spec("reportlab") is not None:
+        return
+    if BUNDLED_SITE_PACKAGES.exists():
+        sys.path.append(str(BUNDLED_SITE_PACKAGES))
+
+
+def register_pdf_font() -> str:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    configured = os.getenv("AOYAO_PDF_FONT", "").strip()
+    candidates = [
+        Path(configured) if configured else None,
+        Path("C:/Windows/Fonts/msyh.ttc"),
+        Path("C:/Windows/Fonts/msyh.ttf"),
+        Path("C:/Windows/Fonts/simhei.ttf"),
+        Path("C:/Windows/Fonts/simsun.ttc"),
+        Path("/System/Library/Fonts/PingFang.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    ]
+
+    for font_path in candidates:
+        if not font_path or not font_path.exists():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont("AoyaoCJK", str(font_path)))
+            return "AoyaoCJK"
+        except Exception:
+            continue
+    return "Helvetica"
+
+
+def pdf_text(value: Any, default: str = "未填写") -> str:
+    text = str(value or "").strip()
+    return text if text else default
+
+
+def paragraph(text: Any, style: Any) -> Any:
+    escaped = html.escape(pdf_text(text)).replace("\n", "<br/>")
+    from reportlab.platypus import Paragraph
+
+    return Paragraph(escaped, style)
+
+
+def joined(values: Any) -> str:
+    if isinstance(values, list):
+        return "、".join(str(item).strip() for item in values if str(item).strip())
+    return ""
+
+
+def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]) -> list[Any]:
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
+
+    story: list[Any] = []
+    for index, record in enumerate(records):
+        if index:
+            story.append(PageBreak())
+
+        patient = record.get("patient") if isinstance(record.get("patient"), dict) else {}
+        vitals = record.get("vitals") if isinstance(record.get("vitals"), dict) else {}
+        menstrual = record.get("menstrual") if isinstance(record.get("menstrual"), dict) else {}
+        advice = record.get("advice") if isinstance(record.get("advice"), dict) else {}
+        visits = record.get("visits") if isinstance(record.get("visits"), list) else []
+        record_no = patient.get("recordNo") or record.get("recordNo") or f"内部ID {record.get('id')}"
+
+        story.append(Paragraph(f"病历编号 {html.escape(str(record_no))}", styles["title"]))
+        story.append(Spacer(1, 5 * mm))
+
+        basic_rows = [
+            ["姓名", pdf_text(patient.get("name")), "性别", pdf_text(patient.get("gender")), "年龄", pdf_text(patient.get("age"))],
+            ["电话", pdf_text(patient.get("phone")), "建档时间", pdf_text(patient.get("recordDate")), "保存时间", pdf_text(record.get("updatedAt"))],
+        ]
+        basic_table = Table(basic_rows, colWidths=[18 * mm, 34 * mm, 18 * mm, 34 * mm, 22 * mm, 38 * mm])
+        basic_table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (-1, -1), styles["font"]),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c7d0d6")),
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f3f6f7")),
+                    ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#f3f6f7")),
+                    ("BACKGROUND", (4, 0), (4, -1), colors.HexColor("#f3f6f7")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEADING", (0, 0), (-1, -1), 13),
+                    ("PADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(basic_table)
+        story.append(Spacer(1, 5 * mm))
+
+        sections = [
+            ("主诉", record.get("chiefComplaint")),
+            ("既往史", record.get("pastHistory")),
+            ("过敏史", record.get("allergyHistory")),
+            ("体征表现", joined(record.get("symptoms"))),
+            (
+                "生命体征",
+                "；".join(
+                    item
+                    for item in [
+                        f"血压：{pdf_text(vitals.get('bloodPressure'), '')}",
+                        f"心率：{pdf_text(vitals.get('heartRate'), '')}",
+                        f"血糖：{pdf_text(vitals.get('bloodSugar'), '')}",
+                        f"尿酸：{pdf_text(vitals.get('uricAcid'), '')}",
+                        f"夜尿：{pdf_text(vitals.get('nightUrineCount'), '')}",
+                    ]
+                    if not item.endswith("：")
+                ),
+            ),
+            ("月经", joined(menstrual.get("selected"))),
+            ("舌脉象", record.get("tonguePulse")),
+            ("饮食建议", joined(advice.get("diet"))),
+            ("生活注意", joined(advice.get("lifestyle"))),
+            ("备注", record.get("notes")),
+        ]
+        for title, body in sections:
+            story.append(Paragraph(html.escape(title), styles["section"]))
+            story.append(paragraph(body, styles["body"]))
+            story.append(Spacer(1, 3 * mm))
+
+        nonempty_visits = [
+            visit
+            for visit in visits
+            if any(str(visit.get(key, "")).strip() for key in ("date", "diagnosis", "plan", "followup"))
+        ]
+        if nonempty_visits:
+            story.append(Paragraph("复诊记录", styles["section"]))
+            visit_rows: list[list[Any]] = [["次数", "时间", "辨证", "内调方案", "回访情况"]]
+            for visit in nonempty_visits:
+                visit_rows.append(
+                    [
+                        paragraph(visit.get("label"), styles["small"]),
+                        paragraph(visit.get("date"), styles["small"]),
+                        paragraph(visit.get("diagnosis"), styles["small"]),
+                        paragraph(visit.get("plan"), styles["small"]),
+                        paragraph(visit.get("followup"), styles["small"]),
+                    ]
+                )
+            visit_table = Table(visit_rows, colWidths=[18 * mm, 24 * mm, 40 * mm, 44 * mm, 40 * mm], repeatRows=1)
+            visit_table.setStyle(
+                TableStyle(
+                    [
+                        ("FONTNAME", (0, 0), (-1, -1), styles["font"]),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c7d0d6")),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4f1")),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("PADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
+            story.append(visit_table)
+    return story
+
+
+def export_records_pdf(record_ids: list[Any]) -> Path:
+    ensure_pdf_dependencies()
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("缺少 PDF 生成依赖 reportlab，请先安装后再导出。") from exc
+
+    normalized_ids: list[int] = []
+    for value in record_ids:
+        record_id = normalize_record_id(value)
+        if record_id and record_id not in normalized_ids:
+            normalized_ids.append(record_id)
+    if not normalized_ids:
+        raise ValueError("请至少选择一条已保存的病历。")
+
+    records: list[dict[str, Any]] = []
+    for record_id in normalized_ids:
+        record = get_record(record_id)
+        if record:
+            records.append(record)
+    if not records:
+        raise ValueError("没有找到可导出的病历。")
+
+    font_name = register_pdf_font()
+    styles = {
+        "font": font_name,
+        "title": ParagraphStyle(
+            "AoyaoTitle",
+            fontName=font_name,
+            fontSize=17,
+            leading=22,
+            spaceAfter=4,
+        ),
+        "section": ParagraphStyle(
+            "AoyaoSection",
+            fontName=font_name,
+            fontSize=11,
+            leading=15,
+            spaceBefore=5,
+            spaceAfter=2,
+        ),
+        "body": ParagraphStyle(
+            "AoyaoBody",
+            fontName=font_name,
+            fontSize=9.5,
+            leading=15,
+            wordWrap="CJK",
+        ),
+        "small": ParagraphStyle(
+            "AoyaoSmall",
+            fontName=font_name,
+            fontSize=8.5,
+            leading=12,
+            wordWrap="CJK",
+        ),
+    }
+
+    PDF_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"aoyao_records_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    output_path = PDF_OUTPUT_DIR / filename
+    doc = SimpleDocTemplate(
+        str(output_path),
+        pagesize=A4,
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=14 * mm,
+        bottomMargin=14 * mm,
+        title="傲尧病历导出",
+    )
+    story = build_record_pdf_story(records, styles)
+    doc.build(story)
+    return output_path
 
 
 def public_config() -> dict[str, str]:
@@ -591,8 +912,25 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def send_exported_pdf(self, filename: str) -> None:
+        safe_name = Path(filename).name
+        pdf_path = PDF_OUTPUT_DIR / safe_name
+        if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
+            json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "导出文件不存在。"})
+            return
+        body = pdf_path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         parsed_path = urllib.parse.urlparse(self.path)
+        if parsed_path.path.startswith("/exports/pdf/"):
+            self.send_exported_pdf(urllib.parse.unquote(parsed_path.path.rsplit("/", 1)[1]))
+            return
         if parsed_path.path == "/api/config":
             json_response(self, HTTPStatus.OK, {"ok": True, "config": public_config()})
             return
@@ -608,6 +946,10 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
             init_database()
             query = urllib.parse.parse_qs(parsed_path.query).get("query", [""])[0].strip()
             json_response(self, HTTPStatus.OK, {"ok": True, "records": list_records(query)})
+            return
+        if parsed_path.path == "/api/next-record-no":
+            init_database()
+            json_response(self, HTTPStatus.OK, {"ok": True, "recordNo": next_record_no()})
             return
         if parsed_path.path.startswith("/api/records/"):
             init_database()
@@ -632,6 +974,25 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
                 request_json = read_json_body(self, MAX_RECORD_JSON_BYTES)
                 saved = save_record(request_json)
                 json_response(self, HTTPStatus.OK, {"ok": True, "record": saved})
+            except Exception as exc:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
+
+        if parsed_path.path == "/api/export/pdf":
+            try:
+                init_database()
+                request_json = read_json_body(self, MAX_RECORD_JSON_BYTES)
+                output_path = export_records_pdf(request_json.get("ids", []))
+                download_url = f"/exports/pdf/{urllib.parse.quote(output_path.name)}"
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "fileName": output_path.name,
+                        "downloadUrl": download_url,
+                    },
+                )
             except Exception as exc:
                 json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return

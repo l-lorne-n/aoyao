@@ -43,6 +43,7 @@ TENCENT_ASR_HOTWORD_ID=热词表 ID
 在项目根目录运行：
 
 ```powershell
+python -m pip install -r requirements.txt
 python .\asr_test_page\server.py --host 127.0.0.1 --port 8765
 ```
 

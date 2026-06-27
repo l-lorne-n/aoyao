@@ -77,6 +77,14 @@ const deleteButton = document.querySelector("#deleteButton");
 const newRecordButton = document.querySelector("#newRecordButton");
 const addVisitButton = document.querySelector("#addVisitButton");
 const formToolbar = document.querySelector(".form-toolbar");
+const exportButton = document.querySelector("#exportButton");
+const exportOverlay = document.querySelector("#exportOverlay");
+const exportSearchInput = document.querySelector("#exportSearchInput");
+const exportRecordList = document.querySelector("#exportRecordList");
+const exportStatus = document.querySelector("#exportStatus");
+const exportCloseButton = document.querySelector("#exportCloseButton");
+const exportCancelButton = document.querySelector("#exportCancelButton");
+const exportPdfButton = document.querySelector("#exportPdfButton");
 const voicePanel = document.querySelector("#voicePanel");
 const voiceTitle = document.querySelector("#voiceTitle");
 const voiceMeta = document.querySelector("#voiceMeta");
@@ -100,6 +108,7 @@ let currentSampleRate = 0;
 let recording = false;
 let startedAt = 0;
 let timerId = 0;
+let exportSelectedIds = new Set();
 
 init();
 
@@ -111,6 +120,7 @@ async function init() {
   renderVisits();
   bindEvents();
   setTodayIfEmpty();
+  await suggestNextRecordNo();
   await refreshDbInfo();
   await loadRecordList();
 }
@@ -121,6 +131,14 @@ function bindEvents() {
   newRecordButton.addEventListener("click", resetForm);
   addVisitButton.addEventListener("click", addVisit);
   searchInput.addEventListener("input", debounce(loadRecordList, 250));
+  exportButton.addEventListener("click", openExportPanel);
+  exportCloseButton.addEventListener("click", closeExportPanel);
+  exportCancelButton.addEventListener("click", closeExportPanel);
+  exportPdfButton.addEventListener("click", exportPdf);
+  exportSearchInput.addEventListener("input", debounce(loadExportRecordList, 250));
+  exportOverlay.addEventListener("click", (event) => {
+    if (event.target === exportOverlay) closeExportPanel();
+  });
   voiceAppendButton.addEventListener("click", () => applyVoiceResult("append"));
   voiceReplaceButton.addEventListener("click", () => applyVoiceResult("replace"));
   voiceCancelButton.addEventListener("click", closeVoicePanel);
@@ -213,6 +231,19 @@ async function refreshDbInfo() {
   }
 }
 
+async function suggestNextRecordNo() {
+  if (currentRecordId || valueOf("recordNo")) return;
+  try {
+    const payload = await fetchJson("/api/next-record-no");
+    isHydrating = true;
+    setValue("recordNo", payload.recordNo || "");
+  } catch (error) {
+    // 编号只是辅助录入，接口失败时不阻塞页面使用。
+  } finally {
+    isHydrating = false;
+  }
+}
+
 async function loadRecordList() {
   const query = searchInput.value.trim();
   try {
@@ -228,7 +259,7 @@ async function loadRecordList() {
           <button class="record-item ${
             Number(record.id) === Number(currentRecordId) ? "active" : ""
           }" data-record-id="${record.id}">
-            <strong>${escapeHtml(record.name || "未填写姓名")}</strong>
+            <strong><span class="record-no">${escapeHtml(displayRecordNo(record))}</span> ${escapeHtml(record.name || "未填写姓名")}</strong>
             <span>${escapeHtml([record.gender, record.age, record.recordDate].filter(Boolean).join(" · "))}</span>
             <span>${escapeHtml(record.chiefComplaint || "未填写主诉")}</span>
           </button>
@@ -240,6 +271,107 @@ async function loadRecordList() {
     });
   } catch (error) {
     recordList.innerHTML = `<div class="record-item"><span>${escapeHtml(error.message)}</span></div>`;
+  }
+}
+
+function displayRecordNo(record) {
+  return record.recordNo ? `编号 ${record.recordNo}` : `内部 #${record.id}`;
+}
+
+async function openExportPanel() {
+  exportOverlay.hidden = false;
+  exportSearchInput.value = "";
+  exportSelectedIds = new Set();
+  if (currentRecordId) {
+    exportSelectedIds.add(String(currentRecordId));
+    exportStatus.textContent = isDirty
+      ? "已默认选择当前病历；当前有未保存修改，导出的是上次保存版本。"
+      : "已默认选择当前病历。";
+  } else {
+    exportStatus.textContent = "当前病历还未保存，保存后才能导出。";
+  }
+  await loadExportRecordList();
+  exportSearchInput.focus();
+}
+
+function closeExportPanel() {
+  exportOverlay.hidden = true;
+}
+
+async function loadExportRecordList() {
+  const query = exportSearchInput.value.trim();
+  try {
+    const payload = await fetchJson(`/api/records?query=${encodeURIComponent(query)}`);
+    renderExportRecordList(payload.records || []);
+  } catch (error) {
+    exportRecordList.innerHTML = `<div class="empty-export">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderExportRecordList(records) {
+  if (!records.length) {
+    exportRecordList.innerHTML = `<div class="empty-export">没有匹配的已保存病历</div>`;
+    updateExportStatus();
+    return;
+  }
+  exportRecordList.innerHTML = records
+    .map((record) => {
+      const checked = exportSelectedIds.has(String(record.id)) ? "checked" : "";
+      return `
+        <label class="export-item">
+          <input type="checkbox" data-export-record-id="${record.id}" ${checked} />
+          <span>
+            <strong>${escapeHtml(displayRecordNo(record))} · ${escapeHtml(record.name || "未填写姓名")}</strong>
+            <span>${escapeHtml([record.gender, record.age, record.recordDate, record.chiefComplaint].filter(Boolean).join(" · "))}</span>
+          </span>
+        </label>
+      `;
+    })
+    .join("");
+  exportRecordList.querySelectorAll("[data-export-record-id]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const id = String(checkbox.dataset.exportRecordId);
+      if (checkbox.checked) {
+        exportSelectedIds.add(id);
+      } else {
+        exportSelectedIds.delete(id);
+      }
+      updateExportStatus();
+    });
+  });
+  updateExportStatus();
+}
+
+function updateExportStatus(message) {
+  if (message) {
+    exportStatus.textContent = message;
+    return;
+  }
+  const count = exportSelectedIds.size;
+  exportStatus.textContent = count ? `已选择 ${count} 条病历` : "请选择至少一条已保存病历";
+}
+
+async function exportPdf() {
+  if (!exportSelectedIds.size) {
+    updateExportStatus("请选择至少一条已保存病历。");
+    return;
+  }
+  exportPdfButton.disabled = true;
+  updateExportStatus("正在生成 PDF");
+  try {
+    const payload = await fetchJson("/api/export/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(exportSelectedIds) }),
+    });
+    updateExportStatus(`已生成 ${payload.fileName || "PDF"}`);
+    if (payload.downloadUrl) {
+      window.location.href = payload.downloadUrl;
+    }
+  } catch (error) {
+    updateExportStatus(error.message || "导出失败");
+  } finally {
+    exportPdfButton.disabled = false;
   }
 }
 
@@ -290,6 +422,7 @@ function collectForm() {
   return {
     id: currentRecordId,
     patient: {
+      recordNo: valueOf("recordNo"),
       name: valueOf("patientName"),
       gender: valueOf("patientGender"),
       age: valueOf("patientAge"),
@@ -334,6 +467,7 @@ function fillForm(record) {
   isHydrating = true;
   currentRecordId = record.id || null;
   const patient = record.patient || {};
+  setValue("recordNo", patient.recordNo || record.recordNo || "");
   setValue("patientName", patient.name || "");
   setValue("patientGender", patient.gender || "");
   setValue("patientAge", patient.age || "");
@@ -361,7 +495,9 @@ function fillForm(record) {
   renderVisits();
   fillVisits(visits);
 
-  formTitle.textContent = currentRecordId ? `病历 #${currentRecordId}` : "新建病历";
+  formTitle.textContent = currentRecordId
+    ? `病历 ${patient.recordNo || record.recordNo ? `编号 ${patient.recordNo || record.recordNo}` : `#${currentRecordId}`}`
+    : "新建病历";
   deleteButton.disabled = !currentRecordId;
   markClean(record.updatedAt ? `已保存 ${record.updatedAt}` : "未保存");
   isHydrating = false;
@@ -393,6 +529,7 @@ function resetForm() {
   closeVoicePanel();
   markClean("未保存");
   isHydrating = false;
+  suggestNextRecordNo();
   loadRecordList();
 }
 

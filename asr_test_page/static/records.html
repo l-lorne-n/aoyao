@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>病历录入</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/records.css?v=20260626_dirty2" />
+    <link rel="stylesheet" href="/records.css?v=20260627_export" />
   </head>
   <body>
     <main class="app">
@@ -15,8 +15,11 @@
           <p id="dbStatus">读取中</p>
         </div>
         <button id="newRecordButton" class="full primary">新建病历</button>
-        <input id="searchInput" class="search" placeholder="搜索姓名、电话、主诉" />
+        <input id="searchInput" class="search" placeholder="搜索编号、姓名、电话、主诉" />
         <div id="recordList" class="record-list"></div>
+        <div class="sidebar-footer">
+          <button id="exportButton" class="full" type="button">导出病历</button>
+        </div>
       </aside>
 
       <section class="form-pane">
@@ -35,6 +38,10 @@
         <form id="recordForm" class="paper-form">
           <section class="section compact">
             <div class="grid basic-grid">
+              <label>
+                <span>病历编号</span>
+                <input id="recordNo" autocomplete="off" />
+              </label>
               <label>
                 <span>姓名</span>
                 <input id="patientName" autocomplete="off" />
@@ -153,9 +160,29 @@
             <label for="notes" class="plain-label">备注</label>
             <textarea id="notes" rows="3"></textarea>
           </section>
-        </form>
+      </form>
       </section>
     </main>
+
+    <section id="exportOverlay" class="modal-overlay" hidden>
+      <div class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+        <header class="export-header">
+          <div>
+            <strong id="exportTitle">导出病历</strong>
+            <span id="exportStatus">选择要导出的病历</span>
+          </div>
+          <button id="exportCloseButton" type="button">关闭</button>
+        </header>
+        <div class="export-body">
+          <input id="exportSearchInput" class="search" placeholder="按编号或姓名检索" />
+          <div id="exportRecordList" class="export-record-list"></div>
+        </div>
+        <footer class="export-actions">
+          <button id="exportCancelButton" type="button">取消</button>
+          <button id="exportPdfButton" class="primary" type="button">导出 PDF</button>
+        </footer>
+      </div>
+    </section>
 
     <section id="voicePanel" class="voice-panel" hidden>
       <div>
@@ -170,6 +197,6 @@
       </div>
     </section>
 
-    <script src="/records.js?v=20260626_dirty2"></script>
+    <script src="/records.js?v=20260627_export"></script>
   </body>
 </html>
