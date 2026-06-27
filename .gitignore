@@ -4,6 +4,9 @@ tencent_api_key.txt
 data/
 output/
 tmp/
+app/
+.build/
+.build_venv/
 backups/
 mum_test/
 .agents/

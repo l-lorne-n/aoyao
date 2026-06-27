@@ -26,11 +26,20 @@ from pathlib import Path
 from typing import Any
 
 
-APP_DIR = Path(__file__).resolve().parent
-ROOT_DIR = APP_DIR.parent
+if getattr(sys, "frozen", False):
+    RUNTIME_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", RUNTIME_DIR))
+    APP_DIR = RESOURCE_DIR / "asr_test_page"
+    if not (APP_DIR / "static").exists():
+        APP_DIR = RESOURCE_DIR
+else:
+    APP_DIR = Path(__file__).resolve().parent
+    RUNTIME_DIR = APP_DIR.parent
+
+ROOT_DIR = RUNTIME_DIR
 STATIC_DIR = APP_DIR / "static"
-DATA_DIR = ROOT_DIR / "data"
-PDF_OUTPUT_DIR = ROOT_DIR / "output" / "pdf"
+DATA_DIR = RUNTIME_DIR / "data"
+PDF_OUTPUT_DIR = RUNTIME_DIR / "output" / "pdf"
 DB_PATH = DATA_DIR / "aoyao_records.sqlite3"
 BUNDLED_SITE_PACKAGES = (
     Path.home()
