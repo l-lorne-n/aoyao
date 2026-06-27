@@ -278,6 +278,14 @@ function displayRecordNo(record) {
   return record.recordNo ? `编号 ${record.recordNo}` : `内部 #${record.id}`;
 }
 
+function formatFormTitle(record) {
+  if (!currentRecordId) return "新建病历";
+  const patient = record.patient || {};
+  const name = patient.name || "未填写姓名";
+  const recordNo = patient.recordNo || record.recordNo || `内部 #${currentRecordId}`;
+  return `病历 ${name} · 编号 ${recordNo}`;
+}
+
 async function openExportPanel() {
   exportOverlay.hidden = false;
   exportSearchInput.value = "";
@@ -495,9 +503,7 @@ function fillForm(record) {
   renderVisits();
   fillVisits(visits);
 
-  formTitle.textContent = currentRecordId
-    ? `病历 ${patient.recordNo || record.recordNo ? `编号 ${patient.recordNo || record.recordNo}` : `#${currentRecordId}`}`
-    : "新建病历";
+  formTitle.textContent = formatFormTitle(record);
   deleteButton.disabled = !currentRecordId;
   markClean(record.updatedAt ? `已保存 ${record.updatedAt}` : "未保存");
   isHydrating = false;
