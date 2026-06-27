@@ -32,6 +32,8 @@
   function getFocusableElements() {
     return Array.from(document.querySelectorAll(focusableSelector)).filter((element) => {
       if (element.disabled) return false;
+      if (element.getAttribute("tabindex") === "-1") return false;
+      if (element.closest("[data-gamepad-skip='true']")) return false;
       if (element.getAttribute("aria-disabled") === "true") return false;
       return isVisible(element);
     });

@@ -216,10 +216,27 @@ function textareaWithVoice(id, label) {
     <div>
       <div class="field-head">
         <label for="${id}">${label}</label>
-        <button type="button" class="voice-button" data-target="${id}">录音</button>
       </div>
-      <textarea id="${id}" rows="6"></textarea>
+      <div class="voice-textarea">
+        <textarea id="${id}" rows="6"></textarea>
+        ${voiceButtonMarkup(id, label)}
+      </div>
     </div>
+  `;
+}
+
+function voiceButtonMarkup(id, label) {
+  const safeLabel = escapeHtml(label);
+  return `
+    <button
+      type="button"
+      class="voice-button voice-icon-button"
+      data-target="${id}"
+      data-gamepad-skip="true"
+      tabindex="-1"
+      aria-label="录制${safeLabel}"
+      title="录制${safeLabel}"
+    ></button>
   `;
 }
 
@@ -573,7 +590,7 @@ async function startRecording(button) {
     setVoiceButtonsDisabled(true);
     button.disabled = false;
     button.classList.add("recording");
-    button.textContent = "停止";
+    setVoiceButtonState(button, "recording");
 
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -601,11 +618,13 @@ async function startRecording(button) {
     recording = true;
     timerId = window.setInterval(() => {
       const seconds = elapsedSeconds();
-      button.textContent = `${Math.floor(seconds)}秒`;
+      setVoiceButtonState(button, "recording", seconds);
       if (seconds >= MAX_SECONDS) stopAndRecognize();
     }, 500);
   } catch (error) {
     cleanupAudio();
+    button.classList.remove("recording");
+    setVoiceButtonState(button, "idle");
     setVoiceButtonsDisabled(false);
     showVoicePanel(currentVoiceTarget, microphoneError(error), "录音失败");
   }
@@ -620,7 +639,7 @@ async function stopAndRecognize() {
   cleanupAudio();
   button.classList.remove("recording");
   button.classList.add("busy");
-  button.textContent = "识别中";
+  setVoiceButtonState(button, "busy");
 
   try {
     const audioBase64 = await blobToBase64(wavBlob);
@@ -634,10 +653,26 @@ async function stopAndRecognize() {
     showVoicePanel(target, error.message || "识别失败", "识别失败");
   } finally {
     button.classList.remove("busy");
-    button.textContent = "录音";
+    setVoiceButtonState(button, "idle");
     setVoiceButtonsDisabled(false);
     activeVoiceButton = null;
   }
+}
+
+function setVoiceButtonState(button, state, seconds) {
+  const target = button.dataset.target || "";
+  const label = document.querySelector(`label[for="${target}"]`)?.textContent.trim() || "当前文本框";
+  const elapsed = Number.isFinite(seconds) ? ` ${Math.floor(seconds)} 秒` : "";
+  const messages = {
+    idle: `录制${label}`,
+    recording: `停止录制${label}${elapsed}`,
+    busy: `正在识别${label}`,
+  };
+  const message = messages[state] || messages.idle;
+  button.dataset.voiceState = state;
+  button.textContent = "";
+  button.setAttribute("aria-label", message);
+  button.title = message;
 }
 
 function buildWavBlob() {

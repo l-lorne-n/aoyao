@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>病历录入</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/records.css?v=20260627_export" />
-    <link rel="stylesheet" href="/gamepad-nav.css?v=20260627_gamepad3" />
+    <link rel="stylesheet" href="/records.css?v=20260627_voiceicon" />
+    <link rel="stylesheet" href="/gamepad-nav.css?v=20260627_gamepad4" />
   </head>
   <body>
     <main class="app">
@@ -74,25 +74,55 @@
           <section class="section">
             <div class="field-head">
               <label for="chiefComplaint">主诉</label>
-              <button type="button" class="voice-button" data-target="chiefComplaint">录音</button>
             </div>
-            <textarea id="chiefComplaint" rows="5"></textarea>
+            <div class="voice-textarea">
+              <textarea id="chiefComplaint" rows="5"></textarea>
+              <button
+                type="button"
+                class="voice-button voice-icon-button"
+                data-target="chiefComplaint"
+                data-gamepad-skip="true"
+                tabindex="-1"
+                aria-label="录制主诉"
+                title="录制主诉"
+              ></button>
+            </div>
           </section>
 
           <section class="section two-col">
             <div>
               <div class="field-head">
                 <label for="pastHistory">既往史</label>
-                <button type="button" class="voice-button" data-target="pastHistory">录音</button>
               </div>
-              <textarea id="pastHistory" rows="4"></textarea>
+              <div class="voice-textarea">
+                <textarea id="pastHistory" rows="4"></textarea>
+                <button
+                  type="button"
+                  class="voice-button voice-icon-button"
+                  data-target="pastHistory"
+                  data-gamepad-skip="true"
+                  tabindex="-1"
+                  aria-label="录制既往史"
+                  title="录制既往史"
+                ></button>
+              </div>
             </div>
             <div>
               <div class="field-head">
                 <label for="allergyHistory">过敏史</label>
-                <button type="button" class="voice-button" data-target="allergyHistory">录音</button>
               </div>
-              <textarea id="allergyHistory" rows="4"></textarea>
+              <div class="voice-textarea">
+                <textarea id="allergyHistory" rows="4"></textarea>
+                <button
+                  type="button"
+                  class="voice-button voice-icon-button"
+                  data-target="allergyHistory"
+                  data-gamepad-skip="true"
+                  tabindex="-1"
+                  aria-label="录制过敏史"
+                  title="录制过敏史"
+                ></button>
+              </div>
             </div>
           </section>
 
@@ -131,9 +161,19 @@
           <section class="section">
             <div class="field-head">
               <label for="tonguePulse">舌脉象</label>
-              <button type="button" class="voice-button" data-target="tonguePulse">录音</button>
             </div>
-            <textarea id="tonguePulse" rows="3"></textarea>
+            <div class="voice-textarea">
+              <textarea id="tonguePulse" rows="3"></textarea>
+              <button
+                type="button"
+                class="voice-button voice-icon-button"
+                data-target="tonguePulse"
+                data-gamepad-skip="true"
+                tabindex="-1"
+                aria-label="录制舌脉象"
+                title="录制舌脉象"
+              ></button>
+            </div>
           </section>
 
           <section class="section">
@@ -199,7 +239,7 @@
       </div>
     </section>
 
-    <script src="/records.js?v=20260627_title"></script>
-    <script src="/gamepad-nav.js?v=20260627_gamepad3"></script>
+    <script src="/records.js?v=20260627_voiceicon"></script>
+    <script src="/gamepad-nav.js?v=20260627_gamepad4"></script>
   </body>
 </html>

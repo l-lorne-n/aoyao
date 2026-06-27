@@ -333,6 +333,72 @@ textarea:focus {
   padding: 0 10px;
 }
 
+.voice-textarea {
+  position: relative;
+}
+
+.voice-textarea textarea {
+  padding-right: 58px;
+  padding-bottom: 48px;
+}
+
+.voice-icon-button {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border-color: #8fa2ad;
+  background: rgba(255, 255, 255, 0.95);
+  color: #1f5d51;
+  font-size: 0;
+  box-shadow: 0 4px 12px rgba(27, 43, 54, 0.14);
+}
+
+.voice-icon-button::before {
+  content: "";
+  width: 12px;
+  height: 17px;
+  border: 2px solid currentColor;
+  border-radius: 7px;
+  border-bottom-left-radius: 7px;
+  border-bottom-right-radius: 7px;
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+}
+
+.voice-icon-button::after {
+  content: "";
+  width: 18px;
+  height: 10px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  border-radius: 0 0 10px 10px;
+  position: absolute;
+  left: 50%;
+  top: 19px;
+  transform: translateX(-50%);
+}
+
+.voice-icon-button:hover:not(:disabled) {
+  background: #f0fbf8;
+  border-color: #16866f;
+  color: #136f61;
+}
+
+.voice-icon-button:focus-visible {
+  border-color: #16866f;
+  box-shadow: 0 0 0 3px rgba(22, 134, 111, 0.16), 0 4px 12px rgba(27, 43, 54, 0.14);
+}
+
 .voice-button.recording {
   border-color: #da5b47;
   background: #fff1ee;
@@ -343,6 +409,26 @@ textarea:focus {
   border-color: #3978cd;
   background: #eef5ff;
   color: #1f55a5;
+}
+
+.voice-icon-button:disabled {
+  opacity: 0.45;
+}
+
+.voice-icon-button.recording,
+.voice-icon-button.recording:hover:not(:disabled) {
+  background: #d94736;
+  border-color: #b93225;
+  color: #fff;
+  opacity: 1;
+}
+
+.voice-icon-button.busy,
+.voice-icon-button.busy:hover:not(:disabled) {
+  background: #2d68bf;
+  border-color: #24569f;
+  color: #fff;
+  opacity: 1;
 }
 
 .two-col,
