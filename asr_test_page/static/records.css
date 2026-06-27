@@ -488,6 +488,14 @@ textarea:focus {
   gap: 10px;
 }
 
+.visit-footer {
+  border-top: 1px solid #d7e0e6;
+  margin-top: 12px;
+  padding-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .voice-panel {
   position: fixed;
   right: 18px;

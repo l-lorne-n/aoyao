@@ -10,11 +10,14 @@
 
   const nativePollIntervalMs = 75;
   const nativeStateFreshMs = 240;
+  const doublePressMs = 430;
 
   let activeGamepadIndex = null;
   let polling = false;
   let nativePolling = false;
   let heldDirection = "";
+  let lastDirection = "";
+  let lastDirectionAt = 0;
   let nativeGamepadState = {
     available: false,
     direction: "",
@@ -178,6 +181,7 @@
           ".modal-overlay:not([hidden])",
           ".voice-panel:not([hidden])",
           ".sidebar",
+          ".paper-form",
           ".form-pane",
           ".history-app",
           ".app",
@@ -382,6 +386,53 @@
     return null;
   }
 
+  function sidebarReturnTarget(elements) {
+    const activeRecord = document.querySelector(".record-item.active");
+    if (activeRecord && elements.includes(activeRecord) && isVisible(activeRecord)) {
+      return activeRecord;
+    }
+
+    const searchInput = document.querySelector("#searchInput");
+    if (searchInput && elements.includes(searchInput) && isVisible(searchInput)) {
+      return searchInput;
+    }
+
+    const firstRecord = document.querySelector("#recordList [data-record-id]");
+    if (firstRecord && elements.includes(firstRecord) && isVisible(firstRecord)) {
+      return firstRecord;
+    }
+
+    const newRecordButton = document.querySelector("#newRecordButton");
+    return newRecordButton && elements.includes(newRecordButton) && isVisible(newRecordButton)
+      ? newRecordButton
+      : null;
+  }
+
+  function handleDirectionPress(direction) {
+    const elements = getFocusableElements();
+    const current = getCurrentElement(elements);
+    const now = Date.now();
+    if (
+      direction === "left" &&
+      current &&
+      !current.closest(".sidebar") &&
+      lastDirection === "left" &&
+      now - lastDirectionAt <= doublePressMs
+    ) {
+      const target = sidebarReturnTarget(elements);
+      if (target) {
+        focusElement(target);
+        lastDirection = "";
+        lastDirectionAt = 0;
+        return;
+      }
+    }
+
+    moveFocus(direction);
+    lastDirection = direction;
+    lastDirectionAt = now;
+  }
+
   function moveFocus(direction) {
     const elements = getFocusableElements();
     if (!elements.length) return;
@@ -406,13 +457,20 @@
         bestSpatialIn(scopedElements, currentInfo, direction) ||
         bestSpatialIn(sectionElements, currentInfo, direction) ||
         bestSpatialIn(paneElements, currentInfo, direction);
-    } else {
+    } else if (direction === "down") {
       nextElement = nextElement ||
         bestSpatialIn(scopedElements, currentInfo, direction) ||
         nextScopeEntryInSection(elements, currentInfo, direction) ||
         bestSpatialIn(sectionElements, currentInfo, direction) ||
         nextSectionEntry(elements, currentInfo, direction, pane) ||
         bestSpatialIn(paneElements, currentInfo, direction);
+    } else {
+      nextElement = nextElement ||
+        bestSpatialIn(scopedElements, currentInfo, direction) ||
+        nextScopeEntryInSection(elements, currentInfo, direction) ||
+        bestSpatialIn(sectionElements, currentInfo, direction) ||
+        bestSpatialIn(paneElements, currentInfo, direction) ||
+        nextSectionEntry(elements, currentInfo, direction, pane);
     }
 
     if (nextElement) focusElement(nextElement);
@@ -457,7 +515,7 @@
     const direction = directionFromInput();
 
     if (direction && !heldDirection) {
-      moveFocus(direction);
+      handleDirectionPress(direction);
       heldDirection = direction;
     }
 
@@ -549,12 +607,16 @@
   document.addEventListener("pointerdown", () => {
     document.body.classList.remove("gamepad-nav-active");
     clearGamepadFocus();
+    lastDirection = "";
+    lastDirectionAt = 0;
   });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab") {
       document.body.classList.remove("gamepad-nav-active");
       clearGamepadFocus();
+      lastDirection = "";
+      lastDirectionAt = 0;
     }
   });
 
@@ -564,6 +626,7 @@
       focusElement(firstVisibleInViewport(elements) || elements[0]);
     },
     moveFocus,
+    pressDirection: handleDirectionPress,
     snapshot: currentGamepadSnapshot,
   };
 
