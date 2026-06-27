@@ -1,0 +1,19 @@
+body.gamepad-nav-active .gamepad-focus,
+body.gamepad-nav-active .gamepad-focus:focus {
+  outline: 3px solid #d89b00 !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(216, 155, 0, 0.2) !important;
+}
+
+body.gamepad-nav-active input.gamepad-focus,
+body.gamepad-nav-active select.gamepad-focus,
+body.gamepad-nav-active textarea.gamepad-focus {
+  border-color: #d89b00 !important;
+}
+
+body.gamepad-nav-active .record-item.gamepad-focus,
+body.gamepad-nav-active .timeline-card.gamepad-focus {
+  border-color: #d89b00;
+  background: #fff8e5;
+}
+
