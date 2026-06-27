@@ -8,18 +8,19 @@
     "[tabindex]:not([tabindex='-1'])",
   ].join(",");
 
-  const axisPairs = [
-    [0, 1],
-    [2, 3],
-    [6, 7],
-  ];
-  const axisThreshold = 0.58;
-  const repeatDelayMs = 185;
+  const nativePollIntervalMs = 75;
+  const nativeStateFreshMs = 240;
 
   let activeGamepadIndex = null;
   let polling = false;
-  let lastMoveAt = 0;
-  let lastDirection = "";
+  let nativePolling = false;
+  let heldDirection = "";
+  let nativeGamepadState = {
+    available: false,
+    direction: "",
+    updatedAt: 0,
+    snapshot: null,
+  };
 
   function isVisible(element) {
     if (!element || element.closest("[hidden]")) return false;
@@ -132,36 +133,17 @@
     return Boolean(button && button.pressed);
   }
 
-  function directionFromAxes(gamepad) {
-    let bestDirection = "";
-    let bestMagnitude = axisThreshold;
-
-    axisPairs.forEach(([xIndex, yIndex]) => {
-      const x = gamepad.axes[xIndex] || 0;
-      const y = gamepad.axes[yIndex] || 0;
-      const absX = Math.abs(x);
-      const absY = Math.abs(y);
-
-      if (absX > bestMagnitude && absX >= absY) {
-        bestMagnitude = absX;
-        bestDirection = x < 0 ? "left" : "right";
-      }
-      if (absY > bestMagnitude && absY > absX) {
-        bestMagnitude = absY;
-        bestDirection = y < 0 ? "up" : "down";
-      }
-    });
-
-    return bestDirection;
+  function normalizeDirection(value) {
+    return ["up", "down", "left", "right"].includes(value) ? value : "";
   }
 
-  function directionFromGamepad(gamepad) {
+  function directionFromBrowserGamepad(gamepad) {
     const buttons = gamepad.buttons || [];
     if (pressed(buttons[12])) return "up";
     if (pressed(buttons[13])) return "down";
     if (pressed(buttons[14])) return "left";
     if (pressed(buttons[15])) return "right";
-    return directionFromAxes(gamepad);
+    return "";
   }
 
   function getActiveGamepad() {
@@ -172,30 +154,70 @@
     return gamepads.find(Boolean) || null;
   }
 
-  function tick(now) {
-    const gamepad = getActiveGamepad();
-    const direction = gamepad ? directionFromGamepad(gamepad) : "";
+  function directionFromInput() {
+    const nativeFresh = Date.now() - nativeGamepadState.updatedAt < nativeStateFreshMs;
+    if (nativeFresh && nativeGamepadState.available) {
+      return nativeGamepadState.direction;
+    }
 
-    if (direction) {
-      if (direction !== lastDirection || now - lastMoveAt >= repeatDelayMs) {
-        moveFocus(direction);
-        lastMoveAt = now;
-        lastDirection = direction;
-      }
-    } else {
-      lastDirection = "";
+    const gamepad = getActiveGamepad();
+    return gamepad ? directionFromBrowserGamepad(gamepad) : "";
+  }
+
+  function tick() {
+    const direction = directionFromInput();
+
+    if (direction && !heldDirection) {
+      moveFocus(direction);
+      heldDirection = direction;
+    }
+
+    if (!direction) {
+      heldDirection = "";
     }
 
     window.requestAnimationFrame(tick);
   }
 
   function startPolling() {
-    if (polling || !("getGamepads" in navigator)) return;
+    if (polling) return;
     polling = true;
+    startNativePolling();
     window.requestAnimationFrame(tick);
   }
 
-  function currentGamepadSnapshot() {
+  function startNativePolling() {
+    if (nativePolling) return;
+    nativePolling = true;
+    pollNativeGamepad();
+  }
+
+  async function pollNativeGamepad() {
+    try {
+      const response = await fetch("/api/gamepad-state", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      nativeGamepadState = {
+        available: Boolean(payload.available),
+        direction: normalizeDirection(payload.state && payload.state.direction),
+        updatedAt: Date.now(),
+        snapshot: payload,
+      };
+    } catch (error) {
+      nativeGamepadState = {
+        available: false,
+        direction: "",
+        updatedAt: Date.now(),
+        snapshot: { ok: false, error: error.message || String(error) },
+      };
+    } finally {
+      window.setTimeout(pollNativeGamepad, nativePollIntervalMs);
+    }
+  }
+
+  function currentBrowserGamepadSnapshot() {
     const gamepad = getActiveGamepad();
     if (!gamepad) return null;
     return {
@@ -207,6 +229,14 @@
         pressed: button.pressed,
         value: button.value,
       })),
+    };
+  }
+
+  function currentGamepadSnapshot() {
+    return {
+      native: nativeGamepadState.snapshot,
+      browser: currentBrowserGamepadSnapshot(),
+      heldDirection,
     };
   }
 

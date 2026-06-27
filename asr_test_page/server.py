@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
 import datetime as dt
 import hashlib
 import html
@@ -20,6 +21,7 @@ import urllib.request
 import urllib.parse
 import uuid
 import wave
+from ctypes import wintypes
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
@@ -1227,6 +1229,123 @@ def parse_tencent_error(response_body: bytes) -> str:
         return response_body.decode("utf-8", errors="replace")[:500]
 
 
+def pov_to_direction(pov: int) -> str:
+    if pov < 0 or pov == 65535:
+        return ""
+    angle = pov % 36000
+    if angle >= 31500 or angle < 4500:
+        return "up"
+    if angle < 13500:
+        return "right"
+    if angle < 22500:
+        return "down"
+    return "left"
+
+
+def read_windows_gamepad_state() -> dict[str, Any]:
+    if os.name != "nt":
+        return {"ok": True, "available": False, "error": "only available on Windows"}
+
+    joy_return_all = 0x000000FF
+    joyerr_noerror = 0
+
+    class JoyCapsW(ctypes.Structure):
+        _fields_ = [
+            ("wMid", wintypes.WORD),
+            ("wPid", wintypes.WORD),
+            ("szPname", wintypes.WCHAR * 32),
+            ("wXmin", wintypes.UINT),
+            ("wXmax", wintypes.UINT),
+            ("wYmin", wintypes.UINT),
+            ("wYmax", wintypes.UINT),
+            ("wZmin", wintypes.UINT),
+            ("wZmax", wintypes.UINT),
+            ("wNumButtons", wintypes.UINT),
+            ("wPeriodMin", wintypes.UINT),
+            ("wPeriodMax", wintypes.UINT),
+            ("wRmin", wintypes.UINT),
+            ("wRmax", wintypes.UINT),
+            ("wUmin", wintypes.UINT),
+            ("wUmax", wintypes.UINT),
+            ("wVmin", wintypes.UINT),
+            ("wVmax", wintypes.UINT),
+            ("wCaps", wintypes.UINT),
+            ("wMaxAxes", wintypes.UINT),
+            ("wNumAxes", wintypes.UINT),
+            ("wMaxButtons", wintypes.UINT),
+            ("szRegKey", wintypes.WCHAR * 32),
+            ("szOEMVxD", wintypes.WCHAR * 260),
+        ]
+
+    class JoyInfoEx(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("dwXpos", wintypes.DWORD),
+            ("dwYpos", wintypes.DWORD),
+            ("dwZpos", wintypes.DWORD),
+            ("dwRpos", wintypes.DWORD),
+            ("dwUpos", wintypes.DWORD),
+            ("dwVpos", wintypes.DWORD),
+            ("dwButtons", wintypes.DWORD),
+            ("dwButtonNumber", wintypes.DWORD),
+            ("dwPOV", wintypes.DWORD),
+            ("dwReserved1", wintypes.DWORD),
+            ("dwReserved2", wintypes.DWORD),
+        ]
+
+    try:
+        winmm = ctypes.WinDLL("winmm")
+        joy_get_num_devs = winmm.joyGetNumDevs
+        joy_get_num_devs.restype = wintypes.UINT
+        joy_get_dev_caps = winmm.joyGetDevCapsW
+        joy_get_dev_caps.argtypes = [wintypes.UINT, ctypes.POINTER(JoyCapsW), wintypes.UINT]
+        joy_get_dev_caps.restype = wintypes.UINT
+        joy_get_pos = winmm.joyGetPosEx
+        joy_get_pos.argtypes = [wintypes.UINT, ctypes.POINTER(JoyInfoEx)]
+        joy_get_pos.restype = wintypes.UINT
+
+        for device_id in range(joy_get_num_devs()):
+            caps = JoyCapsW()
+            if joy_get_dev_caps(device_id, ctypes.byref(caps), ctypes.sizeof(caps)) != joyerr_noerror:
+                continue
+
+            info = JoyInfoEx()
+            info.dwSize = ctypes.sizeof(JoyInfoEx)
+            info.dwFlags = joy_return_all
+            if joy_get_pos(device_id, ctypes.byref(info)) != joyerr_noerror:
+                continue
+
+            return {
+                "ok": True,
+                "available": True,
+                "source": "winmm",
+                "device": {
+                    "id": device_id,
+                    "name": caps.szPname,
+                    "axes": caps.wNumAxes,
+                    "buttons": caps.wNumButtons,
+                },
+                "state": {
+                    "direction": pov_to_direction(int(info.dwPOV)),
+                    "pov": int(info.dwPOV),
+                    "buttonsMask": int(info.dwButtons),
+                    "axes": {
+                        "x": int(info.dwXpos),
+                        "y": int(info.dwYpos),
+                        "z": int(info.dwZpos),
+                        "r": int(info.dwRpos),
+                        "u": int(info.dwUpos),
+                        "v": int(info.dwVpos),
+                    },
+                },
+            }
+    except Exception as exc:
+        return {"ok": False, "available": False, "error": str(exc)}
+
+    return {"ok": True, "available": False, "source": "winmm"}
+
+
 class AsrTestHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         clean_path = urllib.parse.urlparse(path).path
@@ -1272,6 +1391,9 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
                 HTTPStatus.OK,
                 {"ok": True, "dbPath": str(DB_PATH), "recordCount": len(list_records())},
             )
+            return
+        if parsed_path.path == "/api/gamepad-state":
+            json_response(self, HTTPStatus.OK, read_windows_gamepad_state())
             return
         if parsed_path.path == "/api/records":
             init_database()
@@ -1382,6 +1504,8 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
         return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
     def log_message(self, format: str, *args: Any) -> None:
+        if getattr(self, "path", "").startswith("/api/gamepad-state"):
+            return
         message = format % args
         sys.stderr.write(f"[asr-test] {self.address_string()} {message}\n")
 
