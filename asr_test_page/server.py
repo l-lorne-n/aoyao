@@ -381,6 +381,49 @@ def next_record_no() -> str:
     return str(candidate)
 
 
+PDF_SYMPTOM_OPTIONS = [
+    "口干口渴",
+    "口淡",
+    "口苦",
+    "怕冷",
+    "怕热",
+    "嗜睡",
+    "失眠多梦",
+    "食欲好",
+    "纳呆",
+    "大便干硬",
+    "大便稀溏",
+    "尿急尿频",
+    "夜尿",
+]
+
+PDF_MENSTRUAL_OPTIONS = [
+    "色淡红",
+    "色暗红",
+    "量多",
+    "量少",
+    "淋漓不尽",
+    "有血块",
+    "提前",
+    "拖后",
+    "周期不规律",
+]
+
+PDF_DIET_OPTIONS = [
+    "忌生冷寒凉",
+    "忌肥甘厚味",
+    "忌辛辣煎炸/燥热",
+    "忌白萝卜浓茶",
+]
+
+PDF_LIFESTYLE_OPTIONS = [
+    "作息规律戒熬夜",
+    "加强锻炼适度运动",
+    "戒房事",
+    "戒酒",
+]
+
+
 def ensure_pdf_dependencies() -> None:
     if importlib.util.find_spec("reportlab") is not None:
         return
@@ -419,23 +462,73 @@ def pdf_text(value: Any, default: str = "未填写") -> str:
     return text if text else default
 
 
-def paragraph(text: Any, style: Any) -> Any:
-    escaped = html.escape(pdf_text(text)).replace("\n", "<br/>")
+def paragraph(text: Any, style: Any, default: str = "未填写") -> Any:
+    escaped = html.escape(pdf_text(text, default)).replace("\n", "<br/>")
     from reportlab.platypus import Paragraph
 
     return Paragraph(escaped, style)
 
 
-def joined(values: Any) -> str:
-    if isinstance(values, list):
-        return "、".join(str(item).strip() for item in values if str(item).strip())
-    return ""
+def box_paragraph(text: Any, style: Any, min_lines: int = 1) -> Any:
+    raw_lines = str(text or "").strip().splitlines()
+    lines = [html.escape(line.strip()) for line in raw_lines if line.strip()]
+    if not lines:
+        lines = ["&nbsp;"]
+    while len(lines) < min_lines:
+        lines.append("&nbsp;")
+    from reportlab.platypus import Paragraph
+
+    return Paragraph("<br/>".join(lines), style)
+
+
+def format_cn_date(value: Any) -> str:
+    text = str(value or "").strip()
+    parts = text.split("-")
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        year, month, day = parts
+        return f"{year} 年 {int(month)} 月 {int(day)} 日"
+    return text
+
+
+def format_visit_date(value: Any) -> str:
+    text = str(value or "").strip()
+    parts = text.split("-")
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        return f"{int(parts[1])}月{int(parts[2])}日"
+    return text or "__月__日"
+
+
+def underline_value(value: Any, length: int = 8) -> str:
+    text = str(value or "").strip()
+    return text if text else "_" * length
+
+
+def checkbox_options(options: list[str], selected: Any) -> str:
+    selected_values = {
+        str(item).strip()
+        for item in selected
+        if str(item).strip()
+    } if isinstance(selected, list) else set()
+    known_values = set(options)
+    pieces = [
+        f"{'√' if option in selected_values else '□'} {option}"
+        for option in options
+    ]
+    extras = [item for item in selected_values if item not in known_values]
+    if extras:
+        pieces.append("补充：" + "、".join(sorted(extras)))
+    return "    ".join(pieces)
+
+
+def visit_label(index: int) -> str:
+    labels = ["第一次", "第二次", "第三次", "第四次", "第五次", "第六次", "第七次", "第八次", "第九次", "第十次"]
+    return labels[index] if index < len(labels) else f"第{index + 1}次"
 
 
 def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]) -> list[Any]:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
-    from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
+    from reportlab.platypus import PageBreak, Table, TableStyle
 
     story: list[Any] = []
     for index, record in enumerate(records):
@@ -449,94 +542,225 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
         visits = record.get("visits") if isinstance(record.get("visits"), list) else []
         record_no = patient.get("recordNo") or record.get("recordNo") or f"内部ID {record.get('id')}"
 
-        story.append(Paragraph(f"病历编号 {html.escape(str(record_no))}", styles["title"]))
-        story.append(Spacer(1, 5 * mm))
-
-        basic_rows = [
-            ["姓名", pdf_text(patient.get("name")), "性别", pdf_text(patient.get("gender")), "年龄", pdf_text(patient.get("age"))],
-            ["电话", pdf_text(patient.get("phone")), "建档时间", pdf_text(patient.get("recordDate")), "保存时间", pdf_text(record.get("updatedAt"))],
+        rows: list[list[Any]] = [
+            [
+                box_paragraph("编号", styles["label"]),
+                box_paragraph(record_no, styles["body"]),
+                box_paragraph("姓名", styles["label"]),
+                box_paragraph(patient.get("name"), styles["body"]),
+                box_paragraph("性别", styles["label"]),
+                box_paragraph(patient.get("gender"), styles["body"]),
+                box_paragraph("年龄", styles["label"]),
+                box_paragraph(patient.get("age"), styles["body"]),
+            ],
+            [
+                box_paragraph("建档时间", styles["label"]),
+                box_paragraph(format_cn_date(patient.get("recordDate")), styles["body"]),
+                "",
+                "",
+                box_paragraph("电话", styles["label"]),
+                box_paragraph(patient.get("phone"), styles["body"]),
+                "",
+                "",
+            ],
+            [
+                box_paragraph("主诉", styles["label"]),
+                box_paragraph(record.get("chiefComplaint"), styles["body"], min_lines=6),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                box_paragraph("既往史", styles["label"]),
+                box_paragraph(record.get("pastHistory"), styles["body"], min_lines=2),
+                "",
+                "",
+                "",
+                box_paragraph("过敏史", styles["label"]),
+                box_paragraph(record.get("allergyHistory"), styles["body"], min_lines=2),
+                "",
+            ],
+            [
+                box_paragraph("体征表现", styles["label"]),
+                box_paragraph(checkbox_options(PDF_SYMPTOM_OPTIONS[:7], record.get("symptoms")), styles["small"]),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                "",
+                box_paragraph(
+                    checkbox_options(PDF_SYMPTOM_OPTIONS[7:], record.get("symptoms"))
+                    + f"    血压：{underline_value(vitals.get('bloodPressure'))}"
+                    + f"    心率：{underline_value(vitals.get('heartRate'))}"
+                    + f"    血糖：{underline_value(vitals.get('bloodSugar'))}"
+                    + f"    尿酸：{underline_value(vitals.get('uricAcid'))}",
+                    styles["small"],
+                ),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                "",
+                box_paragraph(
+                    "月经："
+                    + checkbox_options(PDF_MENSTRUAL_OPTIONS, menstrual.get("selected"))
+                    + f"    夜尿：{underline_value(vitals.get('nightUrineCount'), 4)} 次/晚",
+                    styles["small"],
+                ),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                "",
+                box_paragraph(f"舌脉象：（{pdf_text(record.get('tonguePulse'), '')}）", styles["body"], min_lines=2),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                box_paragraph("调摄建议", styles["label"]),
+                box_paragraph("饮食：" + checkbox_options(PDF_DIET_OPTIONS, advice.get("diet")), styles["small"]),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                "",
+                box_paragraph("生活注意：" + checkbox_options(PDF_LIFESTYLE_OPTIONS, advice.get("lifestyle")), styles["small"]),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
         ]
-        basic_table = Table(basic_rows, colWidths=[18 * mm, 34 * mm, 18 * mm, 34 * mm, 22 * mm, 38 * mm])
-        basic_table.setStyle(
-            TableStyle(
+
+        spans: list[tuple[str, tuple[int, int], tuple[int, int]]] = [
+            ("SPAN", (1, 1), (3, 1)),
+            ("SPAN", (5, 1), (7, 1)),
+            ("SPAN", (1, 2), (7, 2)),
+            ("SPAN", (1, 3), (4, 3)),
+            ("SPAN", (6, 3), (7, 3)),
+            ("SPAN", (0, 4), (0, 7)),
+            ("SPAN", (1, 4), (7, 4)),
+            ("SPAN", (1, 5), (7, 5)),
+            ("SPAN", (1, 6), (7, 6)),
+            ("SPAN", (1, 7), (7, 7)),
+            ("SPAN", (0, 8), (0, 9)),
+            ("SPAN", (1, 8), (7, 8)),
+            ("SPAN", (1, 9), (7, 9)),
+        ]
+
+        display_visit_count = max(4, len(visits))
+        for visit_index in range(display_visit_count):
+            visit = visits[visit_index] if visit_index < len(visits) and isinstance(visits[visit_index], dict) else {}
+            header_row = len(rows)
+            rows.append(
                 [
-                    ("FONTNAME", (0, 0), (-1, -1), styles["font"]),
-                    ("FONTSIZE", (0, 0), (-1, -1), 9),
-                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c7d0d6")),
-                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f3f6f7")),
-                    ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#f3f6f7")),
-                    ("BACKGROUND", (4, 0), (4, -1), colors.HexColor("#f3f6f7")),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LEADING", (0, 0), (-1, -1), 13),
-                    ("PADDING", (0, 0), (-1, -1), 5),
+                    box_paragraph(
+                        f"{visit.get('label') or visit_label(visit_index)}\n\n时间：\n{format_visit_date(visit.get('date'))}",
+                        styles["label"],
+                        min_lines=4,
+                    ),
+                    "",
+                    box_paragraph("辨证", styles["label"]),
+                    "",
+                    box_paragraph("内调方案", styles["label"]),
+                    "",
+                    box_paragraph("回访情况", styles["label"]),
+                    "",
                 ]
             )
+            rows.append(
+                [
+                    "",
+                    "",
+                    box_paragraph(visit.get("diagnosis"), styles["body"], min_lines=5),
+                    "",
+                    box_paragraph(visit.get("plan"), styles["body"], min_lines=5),
+                    "",
+                    box_paragraph(visit.get("followup"), styles["body"], min_lines=5),
+                    "",
+                ]
+            )
+            spans.extend(
+                [
+                    ("SPAN", (0, header_row), (1, header_row + 1)),
+                    ("SPAN", (2, header_row), (3, header_row)),
+                    ("SPAN", (4, header_row), (5, header_row)),
+                    ("SPAN", (6, header_row), (7, header_row)),
+                    ("SPAN", (2, header_row + 1), (3, header_row + 1)),
+                    ("SPAN", (4, header_row + 1), (5, header_row + 1)),
+                    ("SPAN", (6, header_row + 1), (7, header_row + 1)),
+                ]
+            )
+
+        table = Table(
+            rows,
+            colWidths=[18 * mm, 25 * mm, 15 * mm, 29 * mm, 15 * mm, 28 * mm, 18 * mm, 38 * mm],
+            repeatRows=0,
         )
-        story.append(basic_table)
-        story.append(Spacer(1, 5 * mm))
-
-        sections = [
-            ("主诉", record.get("chiefComplaint")),
-            ("既往史", record.get("pastHistory")),
-            ("过敏史", record.get("allergyHistory")),
-            ("体征表现", joined(record.get("symptoms"))),
-            (
-                "生命体征",
-                "；".join(
-                    item
-                    for item in [
-                        f"血压：{pdf_text(vitals.get('bloodPressure'), '')}",
-                        f"心率：{pdf_text(vitals.get('heartRate'), '')}",
-                        f"血糖：{pdf_text(vitals.get('bloodSugar'), '')}",
-                        f"尿酸：{pdf_text(vitals.get('uricAcid'), '')}",
-                        f"夜尿：{pdf_text(vitals.get('nightUrineCount'), '')}",
-                    ]
-                    if not item.endswith("：")
-                ),
-            ),
-            ("月经", joined(menstrual.get("selected"))),
-            ("舌脉象", record.get("tonguePulse")),
-            ("饮食建议", joined(advice.get("diet"))),
-            ("生活注意", joined(advice.get("lifestyle"))),
-            ("备注", record.get("notes")),
+        style_commands: list[tuple[Any, ...]] = [
+            ("FONTNAME", (0, 0), (-1, -1), styles["font"]),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("GRID", (0, 0), (-1, -1), 0.55, colors.HexColor("#717171")),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#565656")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("VALIGN", (0, 0), (0, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, 1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, 1), "MIDDLE"),
+            ("ALIGN", (2, 10), (-1, -1), "CENTER"),
+            ("PADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 2), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 2), (-1, -1), 5),
         ]
-        for title, body in sections:
-            story.append(Paragraph(html.escape(title), styles["section"]))
-            story.append(paragraph(body, styles["body"]))
-            story.append(Spacer(1, 3 * mm))
+        style_commands.extend(spans)
+        table.setStyle(TableStyle(style_commands))
+        story.append(table)
 
-        nonempty_visits = [
-            visit
-            for visit in visits
-            if any(str(visit.get(key, "")).strip() for key in ("date", "diagnosis", "plan", "followup"))
-        ]
-        if nonempty_visits:
-            story.append(Paragraph("复诊记录", styles["section"]))
-            visit_rows: list[list[Any]] = [["次数", "时间", "辨证", "内调方案", "回访情况"]]
-            for visit in nonempty_visits:
-                visit_rows.append(
-                    [
-                        paragraph(visit.get("label"), styles["small"]),
-                        paragraph(visit.get("date"), styles["small"]),
-                        paragraph(visit.get("diagnosis"), styles["small"]),
-                        paragraph(visit.get("plan"), styles["small"]),
-                        paragraph(visit.get("followup"), styles["small"]),
-                    ]
-                )
-            visit_table = Table(visit_rows, colWidths=[18 * mm, 24 * mm, 40 * mm, 44 * mm, 40 * mm], repeatRows=1)
-            visit_table.setStyle(
+        notes = str(record.get("notes") or "").strip()
+        if notes:
+            notes_table = Table(
+                [[box_paragraph("备注", styles["label"]), box_paragraph(notes, styles["body"], min_lines=2)]],
+                colWidths=[18 * mm, 168 * mm],
+            )
+            notes_table.setStyle(
                 TableStyle(
                     [
                         ("FONTNAME", (0, 0), (-1, -1), styles["font"]),
                         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c7d0d6")),
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4f1")),
+                        ("GRID", (0, 0), (-1, -1), 0.55, colors.HexColor("#717171")),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("PADDING", (0, 0), (-1, -1), 5),
+                        ("ALIGN", (0, 0), (0, 0), "CENTER"),
+                        ("PADDING", (0, 0), (-1, -1), 4),
                     ]
                 )
             )
-            story.append(visit_table)
+            story.append(notes_table)
     return story
 
 
@@ -584,18 +808,26 @@ def export_records_pdf(record_ids: list[Any]) -> Path:
             spaceBefore=5,
             spaceAfter=2,
         ),
+        "label": ParagraphStyle(
+            "AoyaoLabel",
+            fontName=font_name,
+            fontSize=8.5,
+            leading=12,
+            alignment=1,
+            wordWrap="CJK",
+        ),
         "body": ParagraphStyle(
             "AoyaoBody",
             fontName=font_name,
-            fontSize=9.5,
-            leading=15,
+            fontSize=8.5,
+            leading=12,
             wordWrap="CJK",
         ),
         "small": ParagraphStyle(
             "AoyaoSmall",
             fontName=font_name,
-            fontSize=8.5,
-            leading=12,
+            fontSize=7.4,
+            leading=10.5,
             wordWrap="CJK",
         ),
     }
@@ -606,10 +838,10 @@ def export_records_pdf(record_ids: list[Any]) -> Path:
     doc = SimpleDocTemplate(
         str(output_path),
         pagesize=A4,
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=14 * mm,
-        bottomMargin=14 * mm,
+        rightMargin=10 * mm,
+        leftMargin=10 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
         title="傲尧病历导出",
     )
     story = build_record_pdf_story(records, styles)
