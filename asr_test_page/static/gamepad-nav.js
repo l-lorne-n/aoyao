@@ -304,6 +304,19 @@
     return elements[Math.min(elements.length - 1, index + 1)];
   }
 
+  function paneJump(elements, current, direction) {
+    if (direction === "right" && current.element.closest(".sidebar")) {
+      const recordNo = document.querySelector("#recordNo");
+      if (recordNo && elements.includes(recordNo) && isVisible(recordNo)) {
+        return recordNo;
+      }
+      const formPane = document.querySelector(".form-pane");
+      return sectionEntry(formPane, elements);
+    }
+
+    return null;
+  }
+
   function moveFocus(direction) {
     const elements = getFocusableElements();
     if (!elements.length) return;
@@ -320,13 +333,13 @@
     const scopedElements = elementsInside(scope, elements);
     const sectionElements = elementsInside(section, elements);
 
-    let nextElement = null;
+    let nextElement = paneJump(elements, currentInfo, direction);
     if (direction === "left" || direction === "right") {
-      nextElement =
+      nextElement = nextElement ||
         bestHorizontalIn(scopedElements, currentInfo, direction) ||
         bestHorizontalIn(sectionElements, currentInfo, direction);
     } else {
-      nextElement =
+      nextElement = nextElement ||
         bestVerticalIn(scopedElements, currentInfo, direction) ||
         bestVerticalIn(sectionElements, currentInfo, direction) ||
         nextScopeEntryInSection(elements, currentInfo, direction) ||
