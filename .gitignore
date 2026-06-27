@@ -5,6 +5,7 @@ data/
 output/
 tmp/
 app/
+history/
 .build/
 .build_venv/
 backups/
