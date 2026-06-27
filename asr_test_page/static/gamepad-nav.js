@@ -80,23 +80,223 @@
     };
   }
 
-  function candidateScore(direction, currentCenter, candidate) {
-    const candidateCenter = centerOf(candidate);
-    const dx = candidateCenter.x - currentCenter.x;
-    const dy = candidateCenter.y - currentCenter.y;
+  function elementInfo(element) {
+    const rect = element.getBoundingClientRect();
+    return {
+      element,
+      rect,
+      center: {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      },
+    };
+  }
 
-    if (direction === "up" && dy >= -4) return null;
-    if (direction === "down" && dy <= 4) return null;
-    if (direction === "left" && dx >= -4) return null;
-    if (direction === "right" && dx <= 4) return null;
+  function rowOverlap(a, b) {
+    return Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  }
 
-    const primary = direction === "up" || direction === "down" ? Math.abs(dy) : Math.abs(dx);
-    const cross = direction === "up" || direction === "down" ? Math.abs(dx) : Math.abs(dy);
-    return primary + cross * 0.72;
+  function columnOverlap(a, b) {
+    return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  }
+
+  function sameVisualRow(a, b) {
+    const overlap = rowOverlap(a, b);
+    const minHeight = Math.max(1, Math.min(a.height, b.height));
+    const centerGap = Math.abs(centerOfRect(a).y - centerOfRect(b).y);
+    return overlap / minHeight >= 0.35 || centerGap <= Math.max(18, minHeight * 0.8);
+  }
+
+  function sameVisualColumn(a, b) {
+    const overlap = columnOverlap(a, b);
+    const minWidth = Math.max(1, Math.min(a.width, b.width));
+    const centerGap = Math.abs(centerOfRect(a).x - centerOfRect(b).x);
+    return overlap / minWidth >= 0.35 || centerGap <= Math.max(24, minWidth * 0.8);
+  }
+
+  function centerOfRect(rect) {
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  function inDirection(direction, current, candidate) {
+    const deltaX = candidate.center.x - current.center.x;
+    const deltaY = candidate.center.y - current.center.y;
+    if (direction === "left") return deltaX < -4;
+    if (direction === "right") return deltaX > 4;
+    if (direction === "up") return deltaY < -4;
+    if (direction === "down") return deltaY > 4;
+    return false;
+  }
+
+  function closestScope(element) {
+    return element.closest(
+      [
+        ".check-grid",
+        ".basic-grid",
+        ".vital-grid",
+        ".visit-grid",
+        ".record-list",
+        ".export-record-list",
+        ".toolbar-actions",
+        ".history-actions",
+        ".history-filter",
+        ".controls",
+        ".voice-actions",
+        ".two-col",
+        ".advice-grid",
+      ].join(",")
+    );
+  }
+
+  function closestSection(element) {
+    return element.closest(
+      [
+        ".section",
+        ".sidebar",
+        ".form-toolbar",
+        ".modal-overlay",
+        ".voice-panel",
+        ".history-toolbar",
+        ".history-filter",
+        ".timeline-group",
+        ".recorder-band",
+        ".workspace",
+        ".history-section",
+      ].join(",")
+    );
+  }
+
+  function elementsInside(container, elements) {
+    if (!container) return [];
+    return elements.filter((element) => container.contains(element));
+  }
+
+  function sortTopLeft(a, b) {
+    const aRect = a.getBoundingClientRect();
+    const bRect = b.getBoundingClientRect();
+    if (Math.abs(aRect.top - bRect.top) > 10) return aRect.top - bRect.top;
+    return aRect.left - bRect.left;
+  }
+
+  function sectionEntry(section, elements) {
+    const candidates = elementsInside(section, elements);
+    if (!candidates.length) return null;
+    const nonVoice = candidates.filter((element) => !element.classList.contains("voice-button"));
+    return [...(nonVoice.length ? nonVoice : candidates)].sort(sortTopLeft)[0] || null;
+  }
+
+  function scopeEntry(scope, elements) {
+    return sectionEntry(scope, elements);
+  }
+
+  function bestHorizontalIn(candidates, current, direction) {
+    const currentRect = current.rect;
+    return candidates
+      .map(elementInfo)
+      .filter((candidate) => candidate.element !== current.element)
+      .filter((candidate) => inDirection(direction, current, candidate))
+      .filter((candidate) => sameVisualRow(currentRect, candidate.rect))
+      .sort((a, b) => {
+        const primaryA = Math.abs(a.center.x - current.center.x);
+        const primaryB = Math.abs(b.center.x - current.center.x);
+        if (Math.abs(primaryA - primaryB) > 1) return primaryA - primaryB;
+        return Math.abs(a.center.y - current.center.y) - Math.abs(b.center.y - current.center.y);
+      })[0]?.element || null;
+  }
+
+  function bestVerticalIn(candidates, current, direction) {
+    const currentRect = current.rect;
+    return candidates
+      .map(elementInfo)
+      .filter((candidate) => candidate.element !== current.element)
+      .filter((candidate) => inDirection(direction, current, candidate))
+      .filter((candidate) => sameVisualColumn(currentRect, candidate.rect))
+      .sort((a, b) => {
+        const primaryA = Math.abs(a.center.y - current.center.y);
+        const primaryB = Math.abs(b.center.y - current.center.y);
+        if (Math.abs(primaryA - primaryB) > 1) return primaryA - primaryB;
+        return Math.abs(a.center.x - current.center.x) - Math.abs(b.center.x - current.center.x);
+      })[0]?.element || null;
+  }
+
+  function nextSectionEntry(elements, current, direction) {
+    const currentSection = closestSection(current.element);
+    if (!currentSection) return null;
+
+    const currentCenter = centerOfRect(currentSection.getBoundingClientRect());
+    const seen = new Set();
+    const sections = elements
+      .map((element) => closestSection(element))
+      .filter((section) => section && section !== currentSection && !seen.has(section) && seen.add(section))
+      .map((section) => ({
+        section,
+        rect: section.getBoundingClientRect(),
+      }))
+      .filter((item) => {
+        const sectionCenter = centerOfRect(item.rect);
+        if (direction === "up") return sectionCenter.y < currentCenter.y - 4;
+        if (direction === "down") return sectionCenter.y > currentCenter.y + 4;
+        return false;
+      })
+      .sort((a, b) => {
+        const aCenter = centerOfRect(a.rect);
+        const bCenter = centerOfRect(b.rect);
+        const primaryA = Math.abs(aCenter.y - currentCenter.y);
+        const primaryB = Math.abs(bCenter.y - currentCenter.y);
+        if (Math.abs(primaryA - primaryB) > 1) return primaryA - primaryB;
+        return a.rect.left - b.rect.left;
+      });
+
+    for (const item of sections) {
+      const entry = sectionEntry(item.section, elements);
+      if (entry) return entry;
+    }
+
+    return null;
+  }
+
+  function nextScopeEntryInSection(elements, current, direction) {
+    const currentScope = closestScope(current.element);
+    const currentSection = closestSection(current.element);
+    if (!currentScope || !currentSection) return null;
+
+    const currentCenter = centerOfRect(currentScope.getBoundingClientRect());
+    const seen = new Set();
+    const scopes = elementsInside(currentSection, elements)
+      .map((element) => closestScope(element))
+      .filter((scope) => scope && scope !== currentScope && !seen.has(scope) && seen.add(scope))
+      .map((scope) => ({
+        scope,
+        rect: scope.getBoundingClientRect(),
+      }))
+      .filter((item) => {
+        const scopeCenter = centerOfRect(item.rect);
+        if (direction === "up") return scopeCenter.y < currentCenter.y - 4;
+        if (direction === "down") return scopeCenter.y > currentCenter.y + 4;
+        return false;
+      })
+      .sort((a, b) => {
+        const aCenter = centerOfRect(a.rect);
+        const bCenter = centerOfRect(b.rect);
+        const primaryA = Math.abs(aCenter.y - currentCenter.y);
+        const primaryB = Math.abs(bCenter.y - currentCenter.y);
+        if (Math.abs(primaryA - primaryB) > 1) return primaryA - primaryB;
+        return a.rect.left - b.rect.left;
+      });
+
+    for (const item of scopes) {
+      const entry = scopeEntry(item.scope, elements);
+      if (entry) return entry;
+    }
+
+    return null;
   }
 
   function fallbackByDocumentOrder(elements, current, direction) {
-    const index = elements.indexOf(current);
+    const index = elements.indexOf(current.element);
     if (index < 0) return firstVisibleInViewport(elements) || elements[0];
     if (direction === "up" || direction === "left") {
       return elements[Math.max(0, index - 1)];
@@ -114,19 +314,26 @@
       return;
     }
 
-    const currentCenter = centerOf(current);
-    let bestElement = null;
-    let bestScore = Number.POSITIVE_INFINITY;
+    const currentInfo = elementInfo(current);
+    const scope = closestScope(current);
+    const section = closestSection(current);
+    const scopedElements = elementsInside(scope, elements);
+    const sectionElements = elementsInside(section, elements);
 
-    elements.forEach((element) => {
-      if (element === current) return;
-      const score = candidateScore(direction, currentCenter, element);
-      if (score === null || score >= bestScore) return;
-      bestScore = score;
-      bestElement = element;
-    });
+    let nextElement = null;
+    if (direction === "left" || direction === "right") {
+      nextElement =
+        bestHorizontalIn(scopedElements, currentInfo, direction) ||
+        bestHorizontalIn(sectionElements, currentInfo, direction);
+    } else {
+      nextElement =
+        bestVerticalIn(scopedElements, currentInfo, direction) ||
+        bestVerticalIn(sectionElements, currentInfo, direction) ||
+        nextScopeEntryInSection(elements, currentInfo, direction) ||
+        nextSectionEntry(elements, currentInfo, direction);
+    }
 
-    focusElement(bestElement || fallbackByDocumentOrder(elements, current, direction));
+    focusElement(nextElement || fallbackByDocumentOrder(elements, currentInfo, direction));
   }
 
   function pressed(button) {
