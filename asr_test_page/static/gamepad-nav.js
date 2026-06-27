@@ -171,6 +171,21 @@
     );
   }
 
+  function closestPane(element) {
+    return (
+      element.closest(
+        [
+          ".modal-overlay:not([hidden])",
+          ".voice-panel:not([hidden])",
+          ".sidebar",
+          ".form-pane",
+          ".history-app",
+          ".app",
+        ].join(",")
+      ) || document.body
+    );
+  }
+
   function elementsInside(container, elements) {
     if (!container) return [];
     return elements.filter((element) => container.contains(element));
@@ -224,13 +239,70 @@
       })[0]?.element || null;
   }
 
-  function nextSectionEntry(elements, current, direction) {
+  function directionGap(direction, current, candidate) {
+    if (direction === "left") return current.rect.left - candidate.rect.right;
+    if (direction === "right") return candidate.rect.left - current.rect.right;
+    if (direction === "up") return current.rect.top - candidate.rect.bottom;
+    if (direction === "down") return candidate.rect.top - current.rect.bottom;
+    return 0;
+  }
+
+  function crossAxisDistance(direction, current, candidate) {
+    if (direction === "left" || direction === "right") {
+      return Math.abs(candidate.center.y - current.center.y);
+    }
+
+    const candidateNarrower = candidate.rect.width < current.rect.width * 0.75;
+    const anchorX = candidateNarrower ? current.rect.left : current.center.x;
+    const candidateX = candidateNarrower ? candidate.rect.left : candidate.center.x;
+    return Math.abs(candidateX - anchorX);
+  }
+
+  function isSpatialCandidate(direction, current, candidate) {
+    if (candidate.element === current.element) return false;
+
+    if (direction === "left" || direction === "right") {
+      if (!sameVisualRow(current.rect, candidate.rect)) return false;
+      return directionGap(direction, current, candidate) >= -4;
+    }
+
+    return directionGap(direction, current, candidate) >= -4;
+  }
+
+  function bestSpatialIn(candidates, current, direction) {
+    return candidates
+      .map(elementInfo)
+      .filter((candidate) => isSpatialCandidate(direction, current, candidate))
+      .sort((a, b) => {
+        const gapA = Math.max(0, directionGap(direction, current, a));
+        const gapB = Math.max(0, directionGap(direction, current, b));
+        if (Math.abs(gapA - gapB) > 1) return gapA - gapB;
+
+        const crossA = crossAxisDistance(direction, current, a);
+        const crossB = crossAxisDistance(direction, current, b);
+        if (Math.abs(crossA - crossB) > 1) return crossA - crossB;
+
+        const overlapA =
+          direction === "left" || direction === "right"
+            ? rowOverlap(current.rect, a.rect)
+            : columnOverlap(current.rect, a.rect);
+        const overlapB =
+          direction === "left" || direction === "right"
+            ? rowOverlap(current.rect, b.rect)
+            : columnOverlap(current.rect, b.rect);
+        if (Math.abs(overlapA - overlapB) > 1) return overlapB - overlapA;
+
+        return sortTopLeft(a.element, b.element);
+      })[0]?.element || null;
+  }
+
+  function nextSectionEntry(elements, current, direction, pane) {
     const currentSection = closestSection(current.element);
     if (!currentSection) return null;
 
     const currentCenter = centerOfRect(currentSection.getBoundingClientRect());
     const seen = new Set();
-    const sections = elements
+    const sections = elementsInside(pane, elements)
       .map((element) => closestSection(element))
       .filter((section) => section && section !== currentSection && !seen.has(section) && seen.add(section))
       .map((section) => ({
@@ -297,15 +369,6 @@
     return null;
   }
 
-  function fallbackByDocumentOrder(elements, current, direction) {
-    const index = elements.indexOf(current.element);
-    if (index < 0) return firstVisibleInViewport(elements) || elements[0];
-    if (direction === "up" || direction === "left") {
-      return elements[Math.max(0, index - 1)];
-    }
-    return elements[Math.min(elements.length - 1, index + 1)];
-  }
-
   function paneJump(elements, current, direction) {
     if (direction === "right" && current.element.closest(".sidebar")) {
       const recordNo = document.querySelector("#recordNo");
@@ -332,23 +395,27 @@
     const currentInfo = elementInfo(current);
     const scope = closestScope(current);
     const section = closestSection(current);
+    const pane = closestPane(current);
     const scopedElements = elementsInside(scope, elements);
     const sectionElements = elementsInside(section, elements);
+    const paneElements = elementsInside(pane, elements);
 
     let nextElement = paneJump(elements, currentInfo, direction);
     if (direction === "left" || direction === "right") {
       nextElement = nextElement ||
-        bestHorizontalIn(scopedElements, currentInfo, direction) ||
-        bestHorizontalIn(sectionElements, currentInfo, direction);
+        bestSpatialIn(scopedElements, currentInfo, direction) ||
+        bestSpatialIn(sectionElements, currentInfo, direction) ||
+        bestSpatialIn(paneElements, currentInfo, direction);
     } else {
       nextElement = nextElement ||
-        bestVerticalIn(scopedElements, currentInfo, direction) ||
-        bestVerticalIn(sectionElements, currentInfo, direction) ||
+        bestSpatialIn(scopedElements, currentInfo, direction) ||
         nextScopeEntryInSection(elements, currentInfo, direction) ||
-        nextSectionEntry(elements, currentInfo, direction);
+        bestSpatialIn(sectionElements, currentInfo, direction) ||
+        nextSectionEntry(elements, currentInfo, direction, pane) ||
+        bestSpatialIn(paneElements, currentInfo, direction);
     }
 
-    focusElement(nextElement || fallbackByDocumentOrder(elements, currentInfo, direction));
+    if (nextElement) focusElement(nextElement);
   }
 
   function pressed(button) {
