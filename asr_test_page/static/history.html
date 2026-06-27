@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>按时间查看病历</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/history.css?v=20260627_timeline" />
+  </head>
+  <body>
+    <main class="history-app">
+      <header class="history-toolbar">
+        <div>
+          <h1>按时间查看病历</h1>
+          <p id="historyStatus">读取中</p>
+        </div>
+        <div class="history-actions">
+          <a href="/records.html" class="link-button">病历录入</a>
+          <a href="/" class="link-button">语音测试</a>
+        </div>
+      </header>
+
+      <section class="history-filter">
+        <label>
+          <span>日期</span>
+          <input id="dateInput" type="date" />
+        </label>
+        <button id="searchDateButton" class="primary" type="button">查询</button>
+        <button id="clearDateButton" type="button">清空</button>
+      </section>
+
+      <section id="timeline" class="timeline"></section>
+    </main>
+
+    <script src="/history.js?v=20260627_timeline"></script>
+  </body>
+</html>

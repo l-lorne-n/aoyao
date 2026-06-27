@@ -351,6 +351,94 @@ def list_records(query: str = "") -> list[dict[str, Any]]:
     ]
 
 
+def normalize_date_filter(value: str) -> str:
+    text = str(value or "").strip().replace("/", "-")
+    parts = text.split("-")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return text
+    year, month, day = parts
+    return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+
+
+def history_summary(value: Any) -> str:
+    text = " ".join(str(value or "").split())
+    return text[:120]
+
+
+def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
+    filter_date = normalize_date_filter(date_filter)
+    events: list[dict[str, Any]] = []
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, created_at, updated_at, record_no, record_date, name, gender, age,
+                   chief_complaint, data_json
+            FROM records
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
+
+    for row in rows:
+        try:
+            data = json.loads(row["data_json"])
+        except json.JSONDecodeError:
+            data = {}
+        patient = data.get("patient") if isinstance(data.get("patient"), dict) else {}
+        record_id = row["id"]
+        record_no = row["record_no"] or patient.get("recordNo") or ""
+        name = row["name"] or patient.get("name") or ""
+        base = {
+            "recordId": record_id,
+            "recordNo": record_no,
+            "name": name,
+            "gender": row["gender"] or patient.get("gender") or "",
+            "age": row["age"] or patient.get("age") or "",
+            "updatedAt": row["updated_at"],
+        }
+
+        record_date = normalize_date_filter(patient.get("recordDate") or row["record_date"] or "")
+        if record_date and (not filter_date or record_date == filter_date):
+            events.append(
+                {
+                    **base,
+                    "eventId": f"record-{record_id}",
+                    "eventType": "record",
+                    "eventLabel": "首次建档",
+                    "eventDate": record_date,
+                    "summaryLabel": "主诉",
+                    "summary": history_summary(data.get("chiefComplaint") or row["chief_complaint"]),
+                    "sortText": f"{record_date} {row['updated_at']} {record_id:08d} record",
+                }
+            )
+
+        visits = data.get("visits") if isinstance(data.get("visits"), list) else []
+        for index, visit in enumerate(visits):
+            if not isinstance(visit, dict):
+                continue
+            visit_date = normalize_date_filter(visit.get("date", ""))
+            if not visit_date or (filter_date and visit_date != filter_date):
+                continue
+            label = str(visit.get("label") or visit_label(index)).strip()
+            events.append(
+                {
+                    **base,
+                    "eventId": f"visit-{record_id}-{index}",
+                    "eventType": "visit",
+                    "eventLabel": label,
+                    "eventDate": visit_date,
+                    "summaryLabel": "辨证",
+                    "summary": history_summary(visit.get("diagnosis")),
+                    "sortText": f"{visit_date} {row['updated_at']} {record_id:08d} visit {index:03d}",
+                }
+            )
+
+    events.sort(key=lambda event: event["sortText"], reverse=True)
+    for event in events:
+        event.pop("sortText", None)
+    return events[:500]
+
+
 def get_record(record_id: int) -> dict[str, Any] | None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
@@ -1137,6 +1225,8 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
             return str(STATIC_DIR / "index.html")
         if clean_path in ("/records", "/records.html"):
             return str(STATIC_DIR / "records.html")
+        if clean_path in ("/history", "/history.html"):
+            return str(STATIC_DIR / "history.html")
         return str(STATIC_DIR / clean_path.lstrip("/"))
 
     def end_headers(self) -> None:
@@ -1178,6 +1268,19 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
             init_database()
             query = urllib.parse.parse_qs(parsed_path.query).get("query", [""])[0].strip()
             json_response(self, HTTPStatus.OK, {"ok": True, "records": list_records(query)})
+            return
+        if parsed_path.path == "/api/history":
+            init_database()
+            date_filter = urllib.parse.parse_qs(parsed_path.query).get("date", [""])[0].strip()
+            json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "date": normalize_date_filter(date_filter),
+                    "events": list_history_events(date_filter),
+                },
+            )
             return
         if parsed_path.path == "/api/next-record-no":
             init_database()

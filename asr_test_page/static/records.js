@@ -123,6 +123,7 @@ async function init() {
   await suggestNextRecordNo();
   await refreshDbInfo();
   await loadRecordList();
+  await loadInitialRecordFromUrl();
 }
 
 function bindEvents() {
@@ -387,6 +388,16 @@ async function loadRecord(id) {
   const payload = await fetchJson(`/api/records/${id}`);
   fillForm(payload.record);
   await loadRecordList();
+}
+
+async function loadInitialRecordFromUrl() {
+  const id = new URLSearchParams(window.location.search).get("id");
+  if (!id) return;
+  try {
+    await loadRecord(id);
+  } catch (error) {
+    saveStatus.textContent = error.message || "无法打开指定病历";
+  }
 }
 
 async function saveRecord() {
