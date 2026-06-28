@@ -140,6 +140,18 @@ h3 {
   padding: 0 10px;
 }
 
+.search-with-voice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 6px;
+}
+
+.search-with-voice .search {
+  margin: 0;
+}
+
 .record-list {
   flex: 1 1 auto;
   overflow: auto;
@@ -267,7 +279,7 @@ h3 {
 }
 
 .basic-grid {
-  grid-template-columns: 0.85fr 1.25fr 0.7fr 0.7fr 1.15fr 1fr;
+  grid-template-columns: 1.05fr 0.7fr 1.05fr 0.58fr 0.6fr 1fr 0.9fr;
 }
 
 .vital-grid {
@@ -415,6 +427,21 @@ textarea:focus {
   opacity: 0.45;
 }
 
+.inline-voice-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 6px;
+}
+
+.voice-inline-button {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  flex: 0 0 38px;
+  align-self: center;
+}
+
 .voice-icon-button.recording,
 .voice-icon-button.recording:hover:not(:disabled) {
   background: #d94736;
@@ -468,24 +495,17 @@ textarea:focus {
   margin-top: 12px;
 }
 
-.visit-head {
+.visit-row {
   display: grid;
-  grid-template-columns: 110px 160px minmax(0, 1fr);
+  grid-template-columns: 110px repeat(3, minmax(0, 1fr)) 172px;
   gap: 10px;
-  align-items: end;
-  margin-bottom: 10px;
+  align-items: start;
 }
 
 .visit-title {
   font-weight: 800;
   color: #263542;
-  padding-bottom: 8px;
-}
-
-.visit-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  padding-top: 34px;
 }
 
 .visit-footer {
@@ -493,17 +513,140 @@ textarea:focus {
   margin-top: 12px;
   padding-top: 12px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
+}
+
+.visit-footer #addVisitButton {
+  min-width: 154px;
+  min-height: 42px;
+  padding: 0 22px;
+  border-width: 2px;
+  font-size: 16px;
+}
+
+.gamepad-date-picker {
+  position: fixed;
+  z-index: 30;
+  width: 310px;
+  padding: 10px;
+  border: 1px solid #c3d0d8;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(16, 30, 40, 0.2);
+}
+
+.gamepad-date-header {
+  display: grid;
+  grid-template-columns: 36px 36px minmax(0, 1fr) 36px 36px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.gamepad-date-title {
+  min-height: 34px;
+  font-weight: 800;
+  text-align: center;
+  color: #22303d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gamepad-date-weekdays,
+.gamepad-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.gamepad-date-weekdays {
+  color: #5d6b76;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.gamepad-date-day {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
+  border-color: transparent;
+  font-weight: 650;
+}
+
+.gamepad-date-day.outside {
+  color: #7a8790;
+  background: #f6f8f9;
+}
+
+.gamepad-date-day.selected {
+  border-color: #4e5963;
+  background: #5b6068;
+  color: #fff;
+}
+
+.gamepad-select-picker {
+  position: fixed;
+  z-index: 32;
+  width: min(280px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid #c3d0d8;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(16, 30, 40, 0.2);
+}
+
+.gamepad-select-title {
+  margin-bottom: 8px;
+  color: #344553;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.gamepad-select-options {
+  display: grid;
+  gap: 5px;
+  max-height: min(420px, calc(100vh - 160px));
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.gamepad-select-option {
+  width: 100%;
+  min-height: 36px;
+  justify-content: flex-start;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.gamepad-select-option.selected {
+  border-color: #d89b00;
+  background: #fff8e5;
 }
 
 .voice-panel {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 10;
+  z-index: 40;
   width: min(560px, calc(100vw - 36px));
   padding: 14px;
   box-shadow: 0 14px 40px rgba(22, 35, 45, 0.18);
+}
+
+body.voice-panel-open::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(16, 26, 34, 0.22);
+  pointer-events: auto;
+}
+
+body.voice-panel-open .app {
+  filter: saturate(0.78) brightness(0.88);
 }
 
 .modal-overlay {
@@ -640,9 +783,16 @@ textarea:focus {
   }
 
   .basic-grid,
-  .vital-grid,
-  .visit-grid {
+  .vital-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .visit-row {
+    grid-template-columns: 96px repeat(2, minmax(0, 1fr));
+  }
+
+  .visit-date-field {
+    grid-column: 2 / -1;
   }
 
   .check-grid {
@@ -660,10 +810,17 @@ textarea:focus {
   .advice-grid,
   .basic-grid,
   .vital-grid,
-  .visit-grid,
-  .visit-head {
+  .visit-row {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .visit-title {
+    padding-top: 0;
+  }
+
+  .visit-date-field {
+    grid-column: auto;
   }
 
   .toolbar-actions {

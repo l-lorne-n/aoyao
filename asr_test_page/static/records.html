@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>病历录入</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/records.css?v=20260627_navfix" />
-    <link rel="stylesheet" href="/gamepad-nav.css?v=20260627_gamepad6" />
+    <link rel="stylesheet" href="/records.css?v=20260628_gender_age_voice1" />
+    <link rel="stylesheet" href="/gamepad-nav.css?v=20260628_gender_age_voice1" />
   </head>
   <body>
     <main class="app">
@@ -16,7 +16,22 @@
           <p id="dbStatus">读取中</p>
         </div>
         <button id="newRecordButton" class="full primary">新建病历</button>
-        <input id="searchInput" class="search" placeholder="搜索编号、姓名、电话、主诉" />
+        <div class="search-with-voice">
+          <input id="addressRecordSearchInput" class="search" placeholder="搜索地址、编号" autocomplete="off" />
+          <button
+            type="button"
+            class="voice-button voice-icon-button voice-inline-button"
+            data-voice-mode="address-record"
+            data-voice-scope="search"
+            data-voice-label="地址编号搜索"
+            data-target="addressRecordSearchInput"
+            data-gamepad-skip="true"
+            tabindex="-1"
+            aria-label="录制地址编号搜索"
+            title="录制地址编号搜索"
+          ></button>
+        </div>
+        <input id="searchInput" class="search" placeholder="搜索姓名、电话、主诉" />
         <div id="recordList" class="record-list"></div>
         <div class="sidebar-footer">
           <button id="exportButton" class="full" type="button">导出病历</button>
@@ -40,15 +55,33 @@
         <form id="recordForm" class="paper-form">
           <section class="section compact">
             <div class="grid basic-grid">
-              <label>
+              <label for="patientAddress" class="address-field">
+                <span>地址</span>
+                <div class="inline-voice-field">
+                  <select id="patientAddress"></select>
+                  <button
+                    type="button"
+                    class="voice-button voice-icon-button voice-inline-button"
+                    data-voice-mode="address-record"
+                    data-voice-scope="form"
+                    data-voice-label="地址编号"
+                    data-target="patientAddress"
+                    data-gamepad-skip="true"
+                    tabindex="-1"
+                    aria-label="录制地址编号"
+                    title="录制地址编号"
+                  ></button>
+                </div>
+              </label>
+              <label for="recordNo">
                 <span>病历编号</span>
                 <input id="recordNo" autocomplete="off" />
               </label>
-              <label>
+              <label for="patientName">
                 <span>姓名</span>
                 <input id="patientName" autocomplete="off" />
               </label>
-              <label>
+              <label for="patientGender">
                 <span>性别</span>
                 <select id="patientGender">
                   <option value=""></option>
@@ -56,15 +89,28 @@
                   <option>男</option>
                 </select>
               </label>
-              <label>
+              <label for="patientAge">
                 <span>年龄</span>
-                <input id="patientAge" inputmode="numeric" />
+                <div class="inline-voice-field">
+                  <input id="patientAge" inputmode="numeric" />
+                  <button
+                    type="button"
+                    class="voice-button voice-icon-button voice-inline-button"
+                    data-voice-mode="number"
+                    data-voice-label="年龄"
+                    data-target="patientAge"
+                    data-gamepad-skip="true"
+                    tabindex="-1"
+                    aria-label="录制年龄"
+                    title="录制年龄"
+                  ></button>
+                </div>
               </label>
-              <label>
+              <label for="patientPhone">
                 <span>电话</span>
                 <input id="patientPhone" inputmode="tel" />
               </label>
-              <label>
+              <label for="recordDate">
                 <span>建档时间</span>
                 <input id="recordDate" type="date" />
               </label>
@@ -241,7 +287,7 @@
       </div>
     </section>
 
-    <script src="/records.js?v=20260627_voiceicon"></script>
-    <script src="/gamepad-nav.js?v=20260627_gamepad6"></script>
+    <script src="/records.js?v=20260628_gender_age_voice1"></script>
+    <script src="/gamepad-nav.js?v=20260628_gender_age_voice1"></script>
   </body>
 </html>

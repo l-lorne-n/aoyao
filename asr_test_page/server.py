@@ -144,6 +144,7 @@ def init_database() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                address TEXT,
                 record_no TEXT,
                 record_date TEXT,
                 name TEXT,
@@ -162,27 +163,53 @@ def init_database() -> None:
             row[1]
             for row in conn.execute("PRAGMA table_info(records)").fetchall()
         }
+        if "address" not in columns:
+            conn.execute("ALTER TABLE records ADD COLUMN address TEXT")
         if "record_no" not in columns:
             conn.execute("ALTER TABLE records ADD COLUMN record_no TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_updated ON records(updated_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_records_address ON records(address)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_name ON records(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_no ON records(record_no)")
+        backfill_record_addresses(conn)
+        conn.execute("DROP INDEX IF EXISTS idx_records_no_unique")
         conn.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_records_no_unique
-            ON records(record_no)
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_records_address_no_unique
+            ON records(COALESCE(address, ''), record_no)
             WHERE record_no IS NOT NULL AND record_no != ''
             """
         )
         conn.commit()
 
 
+def backfill_record_addresses(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT id, data_json
+        FROM records
+        WHERE (address IS NULL OR address = '') AND data_json IS NOT NULL AND data_json != ''
+        """
+    ).fetchall()
+    for record_id, data_json in rows:
+        try:
+            data = json.loads(data_json)
+        except json.JSONDecodeError:
+            continue
+        patient = data.get("patient") if isinstance(data.get("patient"), dict) else {}
+        address = str(patient.get("address", "")).strip()
+        if address:
+            conn.execute("UPDATE records SET address = ? WHERE id = ?", (address, record_id))
+
+
 def normalize_record(payload: dict[str, Any]) -> dict[str, Any]:
     patient = payload.get("patient") if isinstance(payload.get("patient"), dict) else {}
+    address = str(patient.get("address", payload.get("address", ""))).strip()
     record_no = str(patient.get("recordNo", payload.get("recordNo", ""))).strip()
     normalized = {
         "id": payload.get("id"),
         "patient": {
+            "address": address,
             "recordNo": record_no,
             "name": str(patient.get("name", "")).strip(),
             "gender": str(patient.get("gender", "")).strip(),
@@ -209,8 +236,11 @@ def record_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data["id"] = row["id"]
     data["createdAt"] = row["created_at"]
     data["updatedAt"] = row["updated_at"]
+    data["address"] = row["address"] or ""
     data["recordNo"] = row["record_no"] or ""
     patient = data.get("patient") if isinstance(data.get("patient"), dict) else {}
+    patient["address"] = row["address"] or patient.get("address", "")
+    data["address"] = patient["address"]
     patient["recordNo"] = row["record_no"] or patient.get("recordNo", "")
     data["patient"] = patient
     return data
@@ -226,25 +256,31 @@ def normalize_record_id(value: Any) -> int | None:
     return record_id if record_id > 0 else None
 
 
-def duplicate_record_no_message(record_no: str, row: sqlite3.Row) -> str:
+def duplicate_record_no_message(address: str, record_no: str, row: sqlite3.Row) -> str:
     name = row["name"] or "未填写姓名"
-    return f"病历编号 {record_no} 已被 {name}（内部ID {row['id']}）使用，请换一个编号。"
+    address_label = address or "未填写地址"
+    return f"{address_label} 的病历编号 {record_no} 已被 {name}（内部ID {row['id']}）使用，请换一个编号。"
 
 
-def ensure_unique_record_no(conn: sqlite3.Connection, record_no: str, record_id: int | None) -> None:
+def ensure_unique_record_no(
+    conn: sqlite3.Connection,
+    address: str,
+    record_no: str,
+    record_id: int | None,
+) -> None:
     if not record_no:
         return
     duplicate = conn.execute(
         """
-        SELECT id, name, record_no
+        SELECT id, name, address, record_no
         FROM records
-        WHERE record_no = ? AND id != ?
+        WHERE COALESCE(address, '') = ? AND record_no = ? AND id != ?
         LIMIT 1
         """,
-        (record_no, record_id or -1),
+        (address or "", record_no, record_id or -1),
     ).fetchone()
     if duplicate:
-        raise ValueError(duplicate_record_no_message(record_no, duplicate))
+        raise ValueError(duplicate_record_no_message(address, record_no, duplicate))
 
 
 def save_record(payload: dict[str, Any]) -> dict[str, Any]:
@@ -257,7 +293,7 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         record_id = normalize_record_id(record.get("id"))
-        ensure_unique_record_no(conn, record_no, record_id)
+        ensure_unique_record_no(conn, patient["address"], record_no, record_id)
         if record_id:
             existing = conn.execute("SELECT id FROM records WHERE id = ?", (record_id,)).fetchone()
         else:
@@ -267,13 +303,14 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
             conn.execute(
                 """
                 UPDATE records
-                SET updated_at = ?, record_no = ?, record_date = ?, name = ?, gender = ?, age = ?,
+                SET updated_at = ?, address = ?, record_no = ?, record_date = ?, name = ?, gender = ?, age = ?,
                     phone = ?, chief_complaint = ?, past_history = ?, allergy_history = ?,
                     tongue_pulse = ?, data_json = ?
                 WHERE id = ?
                 """,
                 (
                     now,
+                    patient["address"],
                     record_no,
                     patient["recordDate"],
                     patient["name"],
@@ -292,14 +329,15 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
             cursor = conn.execute(
                 """
                 INSERT INTO records (
-                    created_at, updated_at, record_no, record_date, name, gender, age, phone,
+                    created_at, updated_at, address, record_no, record_date, name, gender, age, phone,
                     chief_complaint, past_history, allergy_history, tongue_pulse, data_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     now,
                     now,
+                    patient["address"],
                     record_no,
                     patient["recordDate"],
                     patient["name"],
@@ -320,22 +358,49 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
         return record_row_to_dict(row)
 
 
-def list_records(query: str = "") -> list[dict[str, Any]]:
+def list_records(
+    legacy_query: str = "",
+    *,
+    address_query: str = "",
+    record_no_query: str = "",
+    identity_query: str = "",
+    text_query: str = "",
+) -> list[dict[str, Any]]:
     params: list[Any] = []
-    where = ""
-    if query:
-        like = f"%{query}%"
-        where = """
-        WHERE record_no LIKE ? OR name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?
-           OR past_history LIKE ? OR allergy_history LIKE ? OR tongue_pulse LIKE ?
-        """
-        params = [like, like, like, like, like, like, like]
+    conditions: list[str] = []
+
+    if address_query:
+        conditions.append("address LIKE ?")
+        params.append(f"%{address_query}%")
+    if record_no_query:
+        conditions.append("record_no LIKE ?")
+        params.append(f"%{record_no_query}%")
+    if identity_query:
+        like = f"%{identity_query}%"
+        conditions.append("(address LIKE ? OR record_no LIKE ?)")
+        params.extend([like, like])
+    if text_query:
+        like = f"%{text_query}%"
+        conditions.append("(name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?)")
+        params.extend([like, like, like])
+
+    if legacy_query and not conditions:
+        like = f"%{legacy_query}%"
+        conditions.append(
+            """
+            (address LIKE ? OR record_no LIKE ? OR name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?
+             OR past_history LIKE ? OR allergy_history LIKE ? OR tongue_pulse LIKE ?)
+            """
+        )
+        params.extend([like, like, like, like, like, like, like, like])
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             f"""
-            SELECT id, created_at, updated_at, record_no, record_date, name, gender, age, phone,
+            SELECT id, created_at, updated_at, address, record_no, record_date, name, gender, age, phone,
                    chief_complaint
             FROM records
             {where}
@@ -348,6 +413,7 @@ def list_records(query: str = "") -> list[dict[str, Any]]:
     return [
         {
             "id": row["id"],
+            "address": row["address"] or "",
             "recordNo": row["record_no"] or "",
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
@@ -383,7 +449,7 @@ def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT id, created_at, updated_at, record_no, record_date, name, gender, age,
+            SELECT id, created_at, updated_at, address, record_no, record_date, name, gender, age,
                    chief_complaint, data_json
             FROM records
             ORDER BY updated_at DESC
@@ -397,10 +463,12 @@ def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
             data = {}
         patient = data.get("patient") if isinstance(data.get("patient"), dict) else {}
         record_id = row["id"]
+        address = row["address"] or patient.get("address") or ""
         record_no = row["record_no"] or patient.get("recordNo") or ""
         name = row["name"] or patient.get("name") or ""
         base = {
             "recordId": record_id,
+            "address": address,
             "recordNo": record_no,
             "name": name,
             "gender": row["gender"] or patient.get("gender") or "",
@@ -639,24 +707,25 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
         menstrual = record.get("menstrual") if isinstance(record.get("menstrual"), dict) else {}
         advice = record.get("advice") if isinstance(record.get("advice"), dict) else {}
         visits = record.get("visits") if isinstance(record.get("visits"), list) else []
+        address = patient.get("address") or ""
         record_no = patient.get("recordNo") or record.get("recordNo") or f"内部ID {record.get('id')}"
 
         rows: list[list[Any]] = [
             [
+                box_paragraph("地址", styles["label"]),
+                box_paragraph(address, styles["body"]),
                 box_paragraph("编号", styles["label"]),
                 box_paragraph(record_no, styles["body"]),
                 box_paragraph("姓名", styles["label"]),
                 box_paragraph(patient.get("name"), styles["body"]),
                 box_paragraph("性别", styles["label"]),
                 box_paragraph(patient.get("gender"), styles["body"]),
-                box_paragraph("年龄", styles["label"]),
-                box_paragraph(patient.get("age"), styles["body"]),
             ],
             [
+                box_paragraph("年龄", styles["label"]),
+                box_paragraph(patient.get("age"), styles["body"]),
                 box_paragraph("建档时间", styles["label"]),
                 box_paragraph(format_cn_date(patient.get("recordDate")), styles["body"]),
-                "",
-                "",
                 box_paragraph("电话", styles["label"]),
                 box_paragraph(patient.get("phone"), styles["body"]),
                 "",
@@ -757,7 +826,6 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
         ]
 
         spans: list[tuple[str, tuple[int, int], tuple[int, int]]] = [
-            ("SPAN", (1, 1), (3, 1)),
             ("SPAN", (5, 1), (7, 1)),
             ("SPAN", (1, 2), (7, 2)),
             ("SPAN", (1, 3), (4, 3)),
@@ -1242,6 +1310,35 @@ def pov_to_direction(pov: int) -> str:
     return "left"
 
 
+def normalize_joystick_axis(value: int, axis_min: int, axis_max: int) -> float:
+    if 0 <= value <= 65535:
+        axis_min = 0
+        axis_max = 65535
+    elif axis_max <= axis_min:
+        return 0.0
+    center = (axis_min + axis_max) / 2
+    half_range = (axis_max - axis_min) / 2
+    normalized = (value - center) / half_range
+    return round(max(-1.0, min(1.0, normalized)), 4)
+
+
+def stick_to_direction(x_axis: float, y_axis: float, deadzone: float = 0.55) -> str:
+    if abs(x_axis) < deadzone and abs(y_axis) < deadzone:
+        return ""
+    if abs(x_axis) > abs(y_axis):
+        return "right" if x_axis > 0 else "left"
+    return "down" if y_axis > 0 else "up"
+
+
+def gamepad_buttons_from_mask(buttons_mask: int) -> dict[str, bool]:
+    return {
+        "a": bool(buttons_mask & 0x1),
+        "b": bool(buttons_mask & 0x2),
+        "x": bool(buttons_mask & 0x8),
+        "y": bool(buttons_mask & 0x10),
+    }
+
+
 def read_windows_gamepad_state() -> dict[str, Any]:
     if os.name != "nt":
         return {"ok": True, "available": False, "error": "only available on Windows"}
@@ -1316,6 +1413,18 @@ def read_windows_gamepad_state() -> dict[str, Any]:
             if joy_get_pos(device_id, ctypes.byref(info)) != joyerr_noerror:
                 continue
 
+            left_x = normalize_joystick_axis(int(info.dwXpos), int(caps.wXmin), int(caps.wXmax))
+            left_y = normalize_joystick_axis(int(info.dwYpos), int(caps.wYmin), int(caps.wYmax))
+            right_x = normalize_joystick_axis(int(info.dwZpos), int(caps.wZmin), int(caps.wZmax))
+            right_y = normalize_joystick_axis(int(info.dwRpos), int(caps.wRmin), int(caps.wRmax))
+            fallback_right_x = normalize_joystick_axis(int(info.dwUpos), int(caps.wUmin), int(caps.wUmax))
+            fallback_right_y = normalize_joystick_axis(int(info.dwVpos), int(caps.wVmin), int(caps.wVmax))
+            if int(caps.wNumAxes) >= 6 and abs(right_x) < 0.08 and abs(right_y) < 0.08 and (
+                abs(fallback_right_x) >= 0.08 or abs(fallback_right_y) >= 0.08
+            ):
+                right_x = fallback_right_x
+                right_y = fallback_right_y
+
             return {
                 "ok": True,
                 "available": True,
@@ -1330,6 +1439,7 @@ def read_windows_gamepad_state() -> dict[str, Any]:
                     "direction": pov_to_direction(int(info.dwPOV)),
                     "pov": int(info.dwPOV),
                     "buttonsMask": int(info.dwButtons),
+                    "buttons": gamepad_buttons_from_mask(int(info.dwButtons)),
                     "axes": {
                         "x": int(info.dwXpos),
                         "y": int(info.dwYpos),
@@ -1337,6 +1447,18 @@ def read_windows_gamepad_state() -> dict[str, Any]:
                         "r": int(info.dwRpos),
                         "u": int(info.dwUpos),
                         "v": int(info.dwVpos),
+                    },
+                    "sticks": {
+                        "left": {
+                            "x": left_x,
+                            "y": left_y,
+                            "direction": stick_to_direction(left_x, left_y),
+                        },
+                        "right": {
+                            "x": right_x,
+                            "y": right_y,
+                            "direction": stick_to_direction(right_x, right_y),
+                        },
                     },
                 },
             }
@@ -1397,8 +1519,21 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
             return
         if parsed_path.path == "/api/records":
             init_database()
-            query = urllib.parse.parse_qs(parsed_path.query).get("query", [""])[0].strip()
-            json_response(self, HTTPStatus.OK, {"ok": True, "records": list_records(query)})
+            query_params = urllib.parse.parse_qs(parsed_path.query)
+            json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "records": list_records(
+                        query_params.get("query", [""])[0].strip(),
+                        address_query=query_params.get("addressQuery", [""])[0].strip(),
+                        record_no_query=query_params.get("recordNoQuery", [""])[0].strip(),
+                        identity_query=query_params.get("identityQuery", [""])[0].strip(),
+                        text_query=query_params.get("textQuery", [""])[0].strip(),
+                    ),
+                },
+            )
             return
         if parsed_path.path == "/api/history":
             init_database()

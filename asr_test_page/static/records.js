@@ -43,6 +43,224 @@ const lifestyleAdviceOptions = [
   "戒酒",
 ];
 
+const addressOptions = [
+  "浑南区",
+  "和平区",
+  "大东区",
+  "铁西区",
+  "中海",
+  "鹿特丹",
+  "沈河区",
+  "长白岛",
+  "龙湖",
+  "沈北新区",
+  "苏家屯",
+  "于洪区",
+  "金沙湾",
+  "外阜",
+  "新加坡城",
+  "皇姑区",
+];
+
+const addressAliases = new Map([
+  ["浑南", "浑南区"],
+  ["混南", "浑南区"],
+  ["湖南", "浑南区"],
+  ["南区", "浑南区"],
+  ["南", "浑南区"],
+  ["nanqu", "浑南区"],
+  ["nan", "浑南区"],
+  ["和平", "和平区"],
+  ["平区", "和平区"],
+  ["平", "和平区"],
+  ["pingqu", "和平区"],
+  ["ping", "和平区"],
+  ["大东", "大东区"],
+  ["大冬", "大东区"],
+  ["东区", "大东区"],
+  ["东", "大东区"],
+  ["dongqu", "大东区"],
+  ["dong", "大东区"],
+  ["铁西", "铁西区"],
+  ["铁锡", "铁西区"],
+  ["西区", "铁西区"],
+  ["西", "铁西区"],
+  ["xiqu", "铁西区"],
+  ["xi", "铁西区"],
+  ["中海", "中海"],
+  ["海", "中海"],
+  ["hai", "中海"],
+  ["鹿特丹", "鹿特丹"],
+  ["路特丹", "鹿特丹"],
+  ["特丹", "鹿特丹"],
+  ["特单", "鹿特丹"],
+  ["丹", "鹿特丹"],
+  ["tedan", "鹿特丹"],
+  ["沈河", "沈河区"],
+  ["沈和", "沈河区"],
+  ["沈合", "沈河区"],
+  ["神河", "沈河区"],
+  ["审河", "沈河区"],
+  ["审核", "沈河区"],
+  ["申河", "沈河区"],
+  ["深河", "沈河区"],
+  ["河区", "沈河区"],
+  ["和区", "沈河区"],
+  ["合区", "沈河区"],
+  ["河", "沈河区"],
+  ["hequ", "沈河区"],
+  ["he", "沈河区"],
+  ["长白岛", "长白岛"],
+  ["长白", "长白岛"],
+  ["白岛", "长白岛"],
+  ["百岛", "长白岛"],
+  ["白", "长白岛"],
+  ["baidao", "长白岛"],
+  ["bai", "长白岛"],
+  ["龙湖", "龙湖"],
+  ["湖", "龙湖"],
+  ["hu", "龙湖"],
+  ["沈北新区", "沈北新区"],
+  ["沈北", "沈北新区"],
+  ["北新区", "沈北新区"],
+  ["北新", "沈北新区"],
+  ["beixinqu", "沈北新区"],
+  ["beixin", "沈北新区"],
+  ["苏家屯", "苏家屯"],
+  ["家屯", "苏家屯"],
+  ["屯", "苏家屯"],
+  ["jiatun", "苏家屯"],
+  ["tun", "苏家屯"],
+  ["于洪", "于洪区"],
+  ["于红", "于洪区"],
+  ["于宏", "于洪区"],
+  ["宇洪", "于洪区"],
+  ["余洪", "于洪区"],
+  ["雨洪", "于洪区"],
+  ["子红", "于洪区"],
+  ["子洪", "于洪区"],
+  ["洪区", "于洪区"],
+  ["红区", "于洪区"],
+  ["洪", "于洪区"],
+  ["红", "于洪区"],
+  ["hongqu", "于洪区"],
+  ["hong", "于洪区"],
+  ["金沙湾", "金沙湾"],
+  ["沙湾", "金沙湾"],
+  ["湾", "金沙湾"],
+  ["shawan", "金沙湾"],
+  ["wan", "金沙湾"],
+  ["外阜", "外阜"],
+  ["外埠", "外阜"],
+  ["外服", "外阜"],
+  ["外付", "外阜"],
+  ["外富", "外阜"],
+  ["外府", "外阜"],
+  ["外父", "外阜"],
+  ["外福", "外阜"],
+  ["外夫", "外阜"],
+  ["外复", "外阜"],
+  ["外副", "外阜"],
+  ["外部", "外阜"],
+  ["阜", "外阜"],
+  ["埠", "外阜"],
+  ["fu", "外阜"],
+  ["新加坡城", "新加坡城"],
+  ["新加坡", "新加坡城"],
+  ["加坡城", "新加坡城"],
+  ["加坡", "新加坡城"],
+  ["坡城", "新加坡城"],
+  ["jiapocheng", "新加坡城"],
+  ["jiapo", "新加坡城"],
+  ["pocheng", "新加坡城"],
+  ["皇姑", "皇姑区"],
+  ["姑区", "皇姑区"],
+  ["姑", "皇姑区"],
+  ["guqu", "皇姑区"],
+  ["gu", "皇姑区"],
+]);
+
+const addressPinyinMap = {
+  浑: "hun",
+  混: "hun",
+  湖: "hun",
+  南: "nan",
+  和: "he",
+  河: "he",
+  合: "he",
+  平: "ping",
+  大: "da",
+  东: "dong",
+  冬: "dong",
+  铁: "tie",
+  西: "xi",
+  锡: "xi",
+  系: "xi",
+  中: "zhong",
+  海: "hai",
+  鹿: "lu",
+  路: "lu",
+  陆: "lu",
+  特: "te",
+  丹: "dan",
+  单: "dan",
+  沈: "shen",
+  神: "shen",
+  深: "shen",
+  审: "shen",
+  申: "shen",
+  身: "shen",
+  核: "he",
+  长: "chang",
+  常: "chang",
+  白: "bai",
+  百: "bai",
+  岛: "dao",
+  龙: "long",
+  隆: "long",
+  湖: "hu",
+  北: "bei",
+  新: "xin",
+  区: "qu",
+  苏: "su",
+  家: "jia",
+  加: "jia",
+  屯: "tun",
+  于: "yu",
+  宇: "yu",
+  玉: "yu",
+  鱼: "yu",
+  洪: "hong",
+  红: "hong",
+  宏: "hong",
+  虹: "hong",
+  金: "jin",
+  今: "jin",
+  沙: "sha",
+  湾: "wan",
+  外: "wai",
+  阜: "fu",
+  埠: "fu",
+  服: "fu",
+  付: "fu",
+  富: "fu",
+  府: "fu",
+  父: "fu",
+  福: "fu",
+  夫: "fu",
+  复: "fu",
+  副: "fu",
+  甫: "fu",
+  符: "fu",
+  扶: "fu",
+  部: "fu",
+  坡: "po",
+  城: "cheng",
+  皇: "huang",
+  黄: "huang",
+  姑: "gu",
+};
+
 const INITIAL_VISIT_COUNT = 4;
 const chineseNumbers = [
   "一",
@@ -71,6 +289,7 @@ const dbStatus = document.querySelector("#dbStatus");
 const saveStatus = document.querySelector("#saveStatus");
 const formTitle = document.querySelector("#formTitle");
 const recordList = document.querySelector("#recordList");
+const addressRecordSearchInput = document.querySelector("#addressRecordSearchInput");
 const searchInput = document.querySelector("#searchInput");
 const saveButton = document.querySelector("#saveButton");
 const deleteButton = document.querySelector("#deleteButton");
@@ -113,6 +332,7 @@ let exportSelectedIds = new Set();
 init();
 
 async function init() {
+  renderAddressOptions();
   renderCheckboxGroup("symptomOptions", symptomOptions, "symptom");
   renderCheckboxGroup("menstrualOptions", menstrualOptions, "menstrual");
   renderCheckboxGroup("dietAdviceOptions", dietAdviceOptions, "dietAdvice");
@@ -131,6 +351,7 @@ function bindEvents() {
   deleteButton.addEventListener("click", deleteCurrentRecord);
   newRecordButton.addEventListener("click", resetForm);
   addVisitButton.addEventListener("click", addVisit);
+  addressRecordSearchInput.addEventListener("input", debounce(loadRecordList, 250));
   searchInput.addEventListener("input", debounce(loadRecordList, 250));
   exportButton.addEventListener("click", openExportPanel);
   exportCloseButton.addEventListener("click", closeExportPanel);
@@ -156,6 +377,11 @@ function bindEvents() {
   });
 }
 
+function renderAddressOptions() {
+  const select = document.querySelector("#patientAddress");
+  select.innerHTML = [`<option value=""></option>`, ...addressOptions.map((address) => `<option>${escapeHtml(address)}</option>`)].join("");
+}
+
 function renderCheckboxGroup(containerId, options, name) {
   const container = document.querySelector(`#${containerId}`);
   container.innerHTML = options
@@ -178,18 +404,15 @@ function renderVisits() {
       const prefix = `visit${index}`;
       return `
         <div class="visit-block">
-          <div class="visit-head">
+          <div class="visit-row">
             <div class="visit-title">${label}</div>
-            <label>
-              <span>时间</span>
-              <input id="${prefix}Date" type="date" />
-            </label>
-            <div></div>
-          </div>
-          <div class="visit-grid">
             ${textareaWithVoice(`${prefix}Diagnosis`, "辨证")}
             ${textareaWithVoice(`${prefix}Plan`, "内调方案")}
             ${textareaWithVoice(`${prefix}Followup`, "回访情况")}
+            <label class="visit-date-field">
+              <span>时间</span>
+              <input id="${prefix}Date" type="date" />
+            </label>
           </div>
         </div>
       `;
@@ -263,9 +486,9 @@ async function suggestNextRecordNo() {
 }
 
 async function loadRecordList() {
-  const query = searchInput.value.trim();
+  const params = recordListSearchParams();
   try {
-    const payload = await fetchJson(`/api/records?query=${encodeURIComponent(query)}`);
+    const payload = await fetchJson(`/api/records?${params.toString()}`);
     const records = payload.records || [];
     if (!records.length) {
       recordList.innerHTML = `<div class="record-item"><span>暂无病历</span></div>`;
@@ -292,16 +515,30 @@ async function loadRecordList() {
   }
 }
 
+function recordListSearchParams() {
+  const params = new URLSearchParams();
+  const identityQuery = addressRecordSearchInput.value.trim();
+  const textQuery = searchInput.value.trim();
+  const parsed = parseAddressRecordText(identityQuery);
+  if (parsed.address) params.set("addressQuery", parsed.address);
+  if (parsed.recordNo) params.set("recordNoQuery", parsed.recordNo);
+  if (identityQuery && !parsed.address && !parsed.recordNo) params.set("identityQuery", identityQuery);
+  if (textQuery) params.set("textQuery", textQuery);
+  return params;
+}
+
 function displayRecordNo(record) {
-  return record.recordNo ? `编号 ${record.recordNo}` : `内部 #${record.id}`;
+  const no = record.recordNo ? `编号 ${record.recordNo}` : `内部 #${record.id}`;
+  return record.address ? `${record.address} · ${no}` : no;
 }
 
 function formatFormTitle(record) {
   if (!currentRecordId) return "新建病历";
   const patient = record.patient || {};
   const name = patient.name || "未填写姓名";
+  const address = patient.address || record.address || "";
   const recordNo = patient.recordNo || record.recordNo || `内部 #${currentRecordId}`;
-  return `病历 ${name} · 编号 ${recordNo}`;
+  return `病历 ${name} · ${[address, `编号 ${recordNo}`].filter(Boolean).join(" · ")}`;
 }
 
 async function openExportPanel() {
@@ -427,7 +664,7 @@ async function saveRecord() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    fillForm(response.record);
+    fillForm(recordWithSubmittedFallback(response.record, payload));
     markClean(response.record.updatedAt ? `已保存 ${response.record.updatedAt}` : "已保存");
     await refreshDbInfo();
     await loadRecordList();
@@ -436,6 +673,20 @@ async function saveRecord() {
   } finally {
     saveButton.disabled = false;
   }
+}
+
+function recordWithSubmittedFallback(record, submitted) {
+  const nextRecord = record || {};
+  const submittedPatient = submitted && submitted.patient ? submitted.patient : {};
+  const patient = nextRecord.patient && typeof nextRecord.patient === "object" ? nextRecord.patient : {};
+  if (!patient.address && submittedPatient.address) {
+    patient.address = submittedPatient.address;
+  }
+  if (!nextRecord.address && patient.address) {
+    nextRecord.address = patient.address;
+  }
+  nextRecord.patient = patient;
+  return nextRecord;
 }
 
 async function deleteCurrentRecord() {
@@ -458,6 +709,7 @@ function collectForm() {
   return {
     id: currentRecordId,
     patient: {
+      address: valueOf("patientAddress"),
       recordNo: valueOf("recordNo"),
       name: valueOf("patientName"),
       gender: valueOf("patientGender"),
@@ -503,6 +755,7 @@ function fillForm(record) {
   isHydrating = true;
   currentRecordId = record.id || null;
   const patient = record.patient || {};
+  setValue("patientAddress", patient.address || record.address || "");
   setValue("recordNo", patient.recordNo || record.recordNo || "");
   setValue("patientName", patient.name || "");
   setValue("patientGender", patient.gender || "");
@@ -578,7 +831,7 @@ async function handleVoiceButton(button) {
     await stopAndRecognize();
     return;
   }
-  if (recording) return;
+  if (recording || activeVoiceButton || button.classList.contains("busy")) return;
   await startRecording(button);
 }
 
@@ -626,7 +879,12 @@ async function startRecording(button) {
     button.classList.remove("recording");
     setVoiceButtonState(button, "idle");
     setVoiceButtonsDisabled(false);
-    showVoicePanel(currentVoiceTarget, microphoneError(error), "录音失败");
+    activeVoiceButton = null;
+    if (isDirectVoiceButton(button)) {
+      showDirectVoiceStatus(microphoneError(error));
+    } else {
+      showVoicePanel(currentVoiceTarget, microphoneError(error), "录音失败");
+    }
   }
 }
 
@@ -648,9 +906,17 @@ async function stopAndRecognize() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audioBase64, durationSeconds: seconds }),
     });
-    showVoicePanel(target, payload.text || "", `${Number(payload.audioDuration || seconds).toFixed(1)} 秒 · ${payload.latencyMs || "-"} ms`);
+    if (isDirectVoiceButton(button)) {
+      applyDirectVoiceResult(button, payload.text || "");
+    } else {
+      showVoicePanel(target, payload.text || "", `${Number(payload.audioDuration || seconds).toFixed(1)} 秒 · ${payload.latencyMs || "-"} ms`);
+    }
   } catch (error) {
-    showVoicePanel(target, error.message || "识别失败", "识别失败");
+    if (isDirectVoiceButton(button)) {
+      showDirectVoiceStatus(error.message || "识别失败");
+    } else {
+      showVoicePanel(target, error.message || "识别失败", "识别失败");
+    }
   } finally {
     button.classList.remove("busy");
     setVoiceButtonState(button, "idle");
@@ -661,7 +927,7 @@ async function stopAndRecognize() {
 
 function setVoiceButtonState(button, state, seconds) {
   const target = button.dataset.target || "";
-  const label = document.querySelector(`label[for="${target}"]`)?.textContent.trim() || "当前文本框";
+  const label = button.dataset.voiceLabel || document.querySelector(`label[for="${target}"]`)?.textContent.trim() || "当前文本框";
   const elapsed = Number.isFinite(seconds) ? ` ${Math.floor(seconds)} 秒` : "";
   const messages = {
     idle: `录制${label}`,
@@ -766,6 +1032,8 @@ function showVoicePanel(target, text, meta) {
   voiceMeta.textContent = meta || "待确认";
   voiceResult.value = text || "";
   voicePanel.hidden = false;
+  document.body.classList.add("voice-panel-open");
+  window.dispatchEvent(new CustomEvent("aoyao:voice-panel-open"));
 }
 
 function applyVoiceResult(mode) {
@@ -779,6 +1047,182 @@ function applyVoiceResult(mode) {
   }
   markDirty();
   closeVoicePanel();
+}
+
+function isDirectAddressRecordVoice(button) {
+  return button && button.dataset.voiceMode === "address-record";
+}
+
+function isDirectNumberVoice(button) {
+  return button && button.dataset.voiceMode === "number";
+}
+
+function isDirectVoiceButton(button) {
+  return isDirectAddressRecordVoice(button) || isDirectNumberVoice(button);
+}
+
+function applyDirectVoiceResult(button, rawText) {
+  if (isDirectAddressRecordVoice(button)) {
+    applyAddressRecordVoice(button, rawText);
+    return;
+  }
+  if (isDirectNumberVoice(button)) applyNumberVoice(button, rawText);
+}
+
+function applyAddressRecordVoice(button, rawText) {
+  const parsed = parseAddressRecordText(rawText);
+  if (!parsed.address && !parsed.recordNo) {
+    showDirectVoiceStatus(`未识别到地址或编号：${rawText || "空"}`);
+    return;
+  }
+
+  if (button.dataset.voiceScope === "search") {
+    addressRecordSearchInput.value = [parsed.address, parsed.recordNo].filter(Boolean).join(" ");
+    showDirectVoiceStatus(`已按 ${addressRecordSearchInput.value} 搜索`);
+    loadRecordList();
+    return;
+  }
+
+  const changed = [];
+  if (parsed.address) {
+    setValue("patientAddress", parsed.address);
+    changed.push(parsed.address);
+  }
+  if (parsed.recordNo) {
+    setValue("recordNo", parsed.recordNo);
+    changed.push(`编号 ${parsed.recordNo}`);
+  }
+  markDirty();
+  showDirectVoiceStatus(`已填入${changed.join(" · ")}，有未保存修改`);
+}
+
+function applyNumberVoice(button, rawText) {
+  const targetId = button.dataset.target;
+  const target = targetId ? document.querySelector(`#${targetId}`) : null;
+  const number = extractRecordNo(rawText);
+  if (!target || !number) {
+    showDirectVoiceStatus(`未识别到数字：${rawText || "空"}`);
+    return;
+  }
+
+  setValue(targetId, number);
+  markDirty();
+  showDirectVoiceStatus(`已填入${button.dataset.voiceLabel || "数字"} ${number}，有未保存修改`);
+}
+
+function showDirectVoiceStatus(message) {
+  saveStatus.textContent = message || "语音识别完成";
+}
+
+function parseAddressRecordText(value) {
+  const text = String(value || "").trim();
+  const normalized = normalizeAddressText(text);
+  return {
+    address: matchAddress(normalized, text),
+    recordNo: extractRecordNo(text),
+  };
+}
+
+function normalizeAddressText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[，,。.;；:：、\s]/g, "")
+    .replace(/病历编号|病历号|编号|地址/g, "");
+}
+
+function matchAddress(normalizedText, rawText = "") {
+  if (!normalizedText && !rawText) return "";
+  const aliasEntries = addressMatchEntries();
+  const directMatch = aliasEntries.find((entry) => entry.key && normalizedText.includes(entry.key));
+  if (directMatch) return directMatch.address;
+
+  const phonetic = phoneticAddressText(rawText || normalizedText);
+  const phoneticMatch = aliasEntries.find((entry) => entry.phonetic && phonetic.includes(entry.phonetic));
+  return phoneticMatch ? phoneticMatch.address : "";
+}
+
+function addressMatchEntries() {
+  const entries = [];
+  addressOptions.forEach((address) => {
+    entries.push(addressMatchEntry(address, address));
+  });
+  addressAliases.forEach((address, alias) => {
+    entries.push(addressMatchEntry(alias, address));
+  });
+  return entries.sort((a, b) => b.key.length - a.key.length || b.phonetic.length - a.phonetic.length);
+}
+
+function addressMatchEntry(alias, address) {
+  return {
+    key: normalizeAddressText(alias),
+    phonetic: phoneticAddressText(alias),
+    address,
+  };
+}
+
+function phoneticAddressText(value) {
+  return Array.from(normalizeAddressText(value))
+    .map((char) => {
+      if (/[a-z0-9]/.test(char)) return char;
+      return addressPinyinMap[char] || "";
+    })
+    .join("");
+}
+
+function extractRecordNo(text) {
+  const arabic = String(text || "").match(/\d+/);
+  if (arabic) return arabic[0];
+
+  const chineseNumberMatches = String(text || "").match(/[零〇一二两三四五六七八九十百千万幺]+/g);
+  if (!chineseNumberMatches || !chineseNumberMatches.length) return "";
+  return chineseNumberToText(chineseNumberMatches[chineseNumberMatches.length - 1]);
+}
+
+function chineseNumberToText(value) {
+  const text = String(value || "");
+  if (!/[十百千万]/.test(text)) {
+    const digits = {
+      零: "0",
+      "〇": "0",
+      幺: "1",
+      一: "1",
+      二: "2",
+      两: "2",
+      三: "3",
+      四: "4",
+      五: "5",
+      六: "6",
+      七: "7",
+      八: "8",
+      九: "9",
+    };
+    return Array.from(text).map((char) => digits[char] || "").join("");
+  }
+
+  const digitValues = { 零: 0, "〇": 0, 幺: 1, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const unitValues = { 十: 10, 百: 100, 千: 1000 };
+  let total = 0;
+  let section = 0;
+  let number = 0;
+  Array.from(text).forEach((char) => {
+    if (Object.hasOwn(digitValues, char)) {
+      number = digitValues[char];
+      return;
+    }
+    if (Object.hasOwn(unitValues, char)) {
+      section += (number || 1) * unitValues[char];
+      number = 0;
+      return;
+    }
+    if (char === "万") {
+      total += (section + number) * 10000;
+      section = 0;
+      number = 0;
+    }
+  });
+  const result = total + section + number;
+  return result ? String(result) : "";
 }
 
 function markDirty() {
@@ -802,6 +1246,8 @@ function closeVoicePanel() {
   voicePanel.hidden = true;
   voiceResult.value = "";
   currentVoiceTarget = null;
+  document.body.classList.remove("voice-panel-open");
+  window.dispatchEvent(new CustomEvent("aoyao:voice-panel-close"));
 }
 
 function labelForTarget(target) {
@@ -824,7 +1270,16 @@ function valueOf(id) {
 }
 
 function setValue(id, value) {
-  document.querySelector(`#${id}`).value = value || "";
+  const element = document.querySelector(`#${id}`);
+  const nextValue = value || "";
+  if (
+    element instanceof HTMLSelectElement &&
+    nextValue &&
+    !Array.from(element.options).some((option) => option.value === nextValue)
+  ) {
+    element.add(new Option(nextValue, nextValue));
+  }
+  element.value = nextValue;
 }
 
 function checkedValues(name) {
@@ -841,8 +1296,24 @@ function setCheckedValues(name, values) {
 }
 
 async function fetchJson(url, options) {
-  const response = await fetch(url, options);
-  const payload = await response.json();
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    const message = error && error.message ? error.message : "";
+    if (/failed to fetch|networkerror|load failed/i.test(message)) {
+      throw new Error("连接不到本地服务，请确认 server.py 仍在运行；当前修改还在，恢复服务后再点保存。");
+    }
+    throw error;
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    throw new Error(`接口返回异常 ${response.status}，请看启动服务的终端窗口。`);
+  }
+
   if (!response.ok || !payload.ok) {
     throw new Error(payload.error || `请求失败 ${response.status}`);
   }
