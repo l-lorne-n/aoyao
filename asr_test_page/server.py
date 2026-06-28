@@ -155,6 +155,7 @@ def init_database() -> None:
                 past_history TEXT,
                 allergy_history TEXT,
                 tongue_pulse TEXT,
+                deleted_at TEXT,
                 data_json TEXT NOT NULL
             )
             """
@@ -167,17 +168,21 @@ def init_database() -> None:
             conn.execute("ALTER TABLE records ADD COLUMN address TEXT")
         if "record_no" not in columns:
             conn.execute("ALTER TABLE records ADD COLUMN record_no TEXT")
+        if "deleted_at" not in columns:
+            conn.execute("ALTER TABLE records ADD COLUMN deleted_at TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_updated ON records(updated_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_address ON records(address)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_name ON records(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_records_no ON records(record_no)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_records_deleted ON records(deleted_at)")
         backfill_record_addresses(conn)
         conn.execute("DROP INDEX IF EXISTS idx_records_no_unique")
+        conn.execute("DROP INDEX IF EXISTS idx_records_address_no_unique")
         conn.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_records_address_no_unique
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_records_active_address_no_unique
             ON records(COALESCE(address, ''), record_no)
-            WHERE record_no IS NOT NULL AND record_no != ''
+            WHERE deleted_at IS NULL AND record_no IS NOT NULL AND record_no != ''
             """
         )
         conn.commit()
@@ -236,6 +241,7 @@ def record_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data["id"] = row["id"]
     data["createdAt"] = row["created_at"]
     data["updatedAt"] = row["updated_at"]
+    data["deletedAt"] = row["deleted_at"] or ""
     data["address"] = row["address"] or ""
     data["recordNo"] = row["record_no"] or ""
     patient = data.get("patient") if isinstance(data.get("patient"), dict) else {}
@@ -258,8 +264,12 @@ def normalize_record_id(value: Any) -> int | None:
 
 def duplicate_record_no_message(address: str, record_no: str, row: sqlite3.Row) -> str:
     name = row["name"] or "未填写姓名"
-    address_label = address or "未填写地址"
+    address_label = address_bucket_label(address)
     return f"{address_label} 的病历编号 {record_no} 已被 {name}（内部ID {row['id']}）使用，请换一个编号。"
+
+
+def address_bucket_label(address: str) -> str:
+    return str(address or "").strip() or "无地址"
 
 
 def ensure_unique_record_no(
@@ -274,7 +284,7 @@ def ensure_unique_record_no(
         """
         SELECT id, name, address, record_no
         FROM records
-        WHERE COALESCE(address, '') = ? AND record_no = ? AND id != ?
+        WHERE deleted_at IS NULL AND COALESCE(address, '') = ? AND record_no = ? AND id != ?
         LIMIT 1
         """,
         (address or "", record_no, record_id or -1),
@@ -295,7 +305,10 @@ def save_record(payload: dict[str, Any]) -> dict[str, Any]:
         record_id = normalize_record_id(record.get("id"))
         ensure_unique_record_no(conn, patient["address"], record_no, record_id)
         if record_id:
-            existing = conn.execute("SELECT id FROM records WHERE id = ?", (record_id,)).fetchone()
+            existing = conn.execute(
+                "SELECT id FROM records WHERE id = ? AND deleted_at IS NULL",
+                (record_id,),
+            ).fetchone()
         else:
             existing = None
 
@@ -367,24 +380,29 @@ def list_records(
     text_query: str = "",
 ) -> list[dict[str, Any]]:
     params: list[Any] = []
-    conditions: list[str] = []
+    conditions: list[str] = ["deleted_at IS NULL"]
+    has_search_filter = False
 
     if address_query:
         conditions.append("address LIKE ?")
         params.append(f"%{address_query}%")
+        has_search_filter = True
     if record_no_query:
         conditions.append("record_no LIKE ?")
         params.append(f"%{record_no_query}%")
+        has_search_filter = True
     if identity_query:
         like = f"%{identity_query}%"
         conditions.append("(address LIKE ? OR record_no LIKE ?)")
         params.extend([like, like])
+        has_search_filter = True
     if text_query:
         like = f"%{text_query}%"
         conditions.append("(name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?)")
         params.extend([like, like, like])
+        has_search_filter = True
 
-    if legacy_query and not conditions:
+    if legacy_query and not has_search_filter:
         like = f"%{legacy_query}%"
         conditions.append(
             """
@@ -452,6 +470,7 @@ def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
             SELECT id, created_at, updated_at, address, record_no, record_date, name, gender, age,
                    chief_complaint, data_json
             FROM records
+            WHERE deleted_at IS NULL
             ORDER BY updated_at DESC
             """
         ).fetchall()
@@ -518,24 +537,106 @@ def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
     return events[:500]
 
 
-def get_record(record_id: int) -> dict[str, Any] | None:
+def get_record(record_id: int, include_deleted: bool = False) -> dict[str, Any] | None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM records WHERE id = ?", (record_id,)).fetchone()
+        if include_deleted:
+            row = conn.execute("SELECT * FROM records WHERE id = ?", (record_id,)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM records WHERE id = ? AND deleted_at IS NULL",
+                (record_id,),
+            ).fetchone()
     return record_row_to_dict(row) if row else None
 
 
-def delete_record(record_id: int) -> bool:
+def soft_delete_record(record_id: int) -> bool:
+    now = utc_now_text()
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
+        cursor = conn.execute(
+            """
+            UPDATE records
+            SET deleted_at = ?, updated_at = ?
+            WHERE id = ? AND deleted_at IS NULL
+            """,
+            (now, now, record_id),
+        )
         conn.commit()
         return cursor.rowcount > 0
+
+
+def purge_deleted_record(record_id: int) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM records WHERE id = ? AND deleted_at IS NOT NULL",
+            (record_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def restore_deleted_record(record_id: int) -> dict[str, Any] | None:
+    now = utc_now_text()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM records WHERE id = ? AND deleted_at IS NOT NULL",
+            (record_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        ensure_unique_record_no(conn, row["address"] or "", row["record_no"] or "", record_id)
+        conn.execute(
+            """
+            UPDATE records
+            SET deleted_at = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (now, record_id),
+        )
+        conn.commit()
+        restored = conn.execute("SELECT * FROM records WHERE id = ?", (record_id,)).fetchone()
+        return record_row_to_dict(restored)
+
+
+def list_deleted_records() -> list[dict[str, Any]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, created_at, updated_at, deleted_at, address, record_no, record_date, name, gender, age, phone,
+                   chief_complaint
+            FROM records
+            WHERE deleted_at IS NOT NULL
+            ORDER BY deleted_at DESC, updated_at DESC
+            LIMIT 200
+            """
+        ).fetchall()
+
+    return [
+        {
+            "id": row["id"],
+            "address": row["address"] or "",
+            "recordNo": row["record_no"] or "",
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "deletedAt": row["deleted_at"] or "",
+            "recordDate": row["record_date"] or "",
+            "name": row["name"] or "",
+            "gender": row["gender"] or "",
+            "age": row["age"] or "",
+            "phone": row["phone"] or "",
+            "chiefComplaint": row["chief_complaint"] or "",
+        }
+        for row in rows
+    ]
 
 
 def next_record_no() -> str:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
-            "SELECT record_no FROM records WHERE record_no IS NOT NULL AND record_no != ''"
+            "SELECT record_no FROM records WHERE deleted_at IS NULL AND record_no IS NOT NULL AND record_no != ''"
         ).fetchall()
     used: set[int] = set()
     for (raw_no,) in rows:
@@ -1517,6 +1618,10 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
         if parsed_path.path == "/api/gamepad-state":
             json_response(self, HTTPStatus.OK, read_windows_gamepad_state())
             return
+        if parsed_path.path == "/api/trash":
+            init_database()
+            json_response(self, HTTPStatus.OK, {"ok": True, "records": list_deleted_records()})
+            return
         if parsed_path.path == "/api/records":
             init_database()
             query_params = urllib.parse.parse_qs(parsed_path.query)
@@ -1579,6 +1684,19 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
                 json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return
 
+        if parsed_path.path.startswith("/api/records/") and parsed_path.path.endswith("/restore"):
+            try:
+                init_database()
+                record_id = int(parsed_path.path.strip("/").split("/")[-2])
+                restored = restore_deleted_record(record_id)
+                if not restored:
+                    json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "垃圾桶中没有找到该病历。"})
+                    return
+                json_response(self, HTTPStatus.OK, {"ok": True, "record": restored})
+            except Exception as exc:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
+
         if parsed_path.path == "/api/export/pdf":
             try:
                 init_database()
@@ -1623,9 +1741,17 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
             return
         try:
             init_database()
+            if parsed_path.path.endswith("/purge"):
+                record_id = int(parsed_path.path.strip("/").split("/")[-2])
+                if not purge_deleted_record(record_id):
+                    json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "垃圾桶中没有找到该病历。"})
+                    return
+                json_response(self, HTTPStatus.OK, {"ok": True})
+                return
+
             record_id = int(parsed_path.path.rsplit("/", 1)[1])
-            if not delete_record(record_id):
-                json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "病历不存在。"})
+            if not soft_delete_record(record_id):
+                json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "病历不存在或已在垃圾桶中。"})
                 return
             json_response(self, HTTPStatus.OK, {"ok": True})
         except Exception as exc:

@@ -701,6 +701,92 @@ body.voice-panel-open .app {
   border-radius: 6px;
 }
 
+.trash-dialog {
+  width: min(820px, calc(100vw - 36px));
+}
+
+.trash-record-list {
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid #d8e1e6;
+  border-radius: 6px;
+}
+
+.trash-item {
+  min-height: 84px;
+  padding: 10px;
+  border-bottom: 1px solid #edf2f4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 12px;
+  align-items: center;
+}
+
+.trash-item:last-child {
+  border-bottom: 0;
+}
+
+.trash-item:hover {
+  background: #f7faf9;
+}
+
+.trash-card-body {
+  min-width: 0;
+}
+
+.trash-card-body strong,
+.trash-card-body span,
+.trash-card-body p {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-card-body strong {
+  color: #24323e;
+}
+
+.trash-card-body span {
+  margin-top: 4px;
+  color: #66747f;
+  font-size: 12px;
+}
+
+.trash-card-body p {
+  margin: 7px 0 0;
+  color: #344553;
+}
+
+.trash-action-label span {
+  color: #5d6b76;
+  font-size: 12px;
+}
+
+.unsaved-dialog {
+  width: min(560px, calc(100vw - 36px));
+  border-top: 4px solid #d89b00;
+}
+
+.unsaved-body {
+  padding: 16px 14px 4px;
+  color: #344553;
+}
+
+.unsaved-body p {
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+
+.unsaved-actions {
+  gap: 8px;
+}
+
+.unsaved-actions #unsavedDiscardButton {
+  border-color: #c98b87;
+  color: #9b2f2a;
+}
+
 .export-item {
   min-height: 62px;
   padding: 9px 10px;
@@ -836,6 +922,10 @@ body.voice-panel-open .app {
   .export-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .trash-item {
+    grid-template-columns: 1fr;
   }
 
   .check-grid {

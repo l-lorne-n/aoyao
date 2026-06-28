@@ -1380,9 +1380,15 @@
     window.requestAnimationFrame(focusDefaultVoicePanelButton);
   });
 
-  window.addEventListener("aoyao:voice-panel-close", () => {
+  window.addEventListener("aoyao:voice-panel-close", (event) => {
     clearSidebarReturnArm();
     resetGamepadHoldState();
+    const detail = event.detail || {};
+    const target = detail.restoreFocus && detail.target ? document.getElementById(detail.target) : null;
+    if (target instanceof HTMLElement && isVisible(target)) {
+      window.requestAnimationFrame(() => focusElement(target));
+      return;
+    }
     clearGamepadFocus();
   });
 

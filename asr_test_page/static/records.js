@@ -304,6 +304,18 @@ const exportStatus = document.querySelector("#exportStatus");
 const exportCloseButton = document.querySelector("#exportCloseButton");
 const exportCancelButton = document.querySelector("#exportCancelButton");
 const exportPdfButton = document.querySelector("#exportPdfButton");
+const trashButton = document.querySelector("#trashButton");
+const trashOverlay = document.querySelector("#trashOverlay");
+const trashRecordList = document.querySelector("#trashRecordList");
+const trashStatus = document.querySelector("#trashStatus");
+const trashCloseButton = document.querySelector("#trashCloseButton");
+const trashCancelButton = document.querySelector("#trashCancelButton");
+const unsavedOverlay = document.querySelector("#unsavedOverlay");
+const unsavedStatus = document.querySelector("#unsavedStatus");
+const unsavedCloseButton = document.querySelector("#unsavedCloseButton");
+const unsavedDiscardButton = document.querySelector("#unsavedDiscardButton");
+const unsavedCancelButton = document.querySelector("#unsavedCancelButton");
+const unsavedSaveButton = document.querySelector("#unsavedSaveButton");
 const voicePanel = document.querySelector("#voicePanel");
 const voiceTitle = document.querySelector("#voiceTitle");
 const voiceMeta = document.querySelector("#voiceMeta");
@@ -328,6 +340,8 @@ let recording = false;
 let startedAt = 0;
 let timerId = 0;
 let exportSelectedIds = new Set();
+let pendingUnsavedAction = null;
+let allowUnloadWithoutPrompt = false;
 
 init();
 
@@ -340,16 +354,15 @@ async function init() {
   renderVisits();
   bindEvents();
   setTodayIfEmpty();
-  await suggestNextRecordNo();
   await refreshDbInfo();
-  await loadRecordList();
-  await loadInitialRecordFromUrl();
+  const records = await loadRecordList();
+  await loadInitialRecordFromUrl(records);
 }
 
 function bindEvents() {
   saveButton.addEventListener("click", saveRecord);
   deleteButton.addEventListener("click", deleteCurrentRecord);
-  newRecordButton.addEventListener("click", resetForm);
+  newRecordButton.addEventListener("click", () => runWithUnsavedGuard(resetForm, "新建病历前，当前病历有未保存修改。"));
   addVisitButton.addEventListener("click", addVisit);
   addressRecordSearchInput.addEventListener("input", debounce(loadRecordList, 250));
   searchInput.addEventListener("input", debounce(loadRecordList, 250));
@@ -361,9 +374,24 @@ function bindEvents() {
   exportOverlay.addEventListener("click", (event) => {
     if (event.target === exportOverlay) closeExportPanel();
   });
+  trashButton.addEventListener("click", openTrashPanel);
+  trashCloseButton.addEventListener("click", closeTrashPanel);
+  trashCancelButton.addEventListener("click", closeTrashPanel);
+  trashOverlay.addEventListener("click", (event) => {
+    if (event.target === trashOverlay) closeTrashPanel();
+  });
+  unsavedCloseButton.addEventListener("click", closeUnsavedPanel);
+  unsavedCancelButton.addEventListener("click", closeUnsavedPanel);
+  unsavedOverlay.addEventListener("click", (event) => {
+    if (event.target === unsavedOverlay) closeUnsavedPanel();
+  });
+  unsavedDiscardButton.addEventListener("click", continueWithoutSaving);
+  unsavedSaveButton.addEventListener("click", saveAndContinue);
   voiceAppendButton.addEventListener("click", () => applyVoiceResult("append"));
   voiceReplaceButton.addEventListener("click", () => applyVoiceResult("replace"));
-  voiceCancelButton.addEventListener("click", closeVoicePanel);
+  voiceCancelButton.addEventListener("click", () => closeVoicePanel());
+  window.addEventListener("beforeunload", warnBeforeUnload);
+  document.addEventListener("click", handleLinkNavigation);
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".voice-button");
     if (!button) return;
@@ -375,6 +403,86 @@ function bindEvents() {
   document.querySelector("#recordForm").addEventListener("change", () => {
     markDirty();
   });
+}
+
+function runWithUnsavedGuard(action, message) {
+  if (!isDirty) return action();
+  pendingUnsavedAction = action;
+  unsavedStatus.textContent = message || "当前病历有未保存修改。";
+  unsavedSaveButton.disabled = false;
+  unsavedDiscardButton.disabled = false;
+  unsavedCancelButton.disabled = false;
+  unsavedCloseButton.disabled = false;
+  unsavedOverlay.hidden = false;
+  window.requestAnimationFrame(() => unsavedSaveButton.focus());
+}
+
+function closeUnsavedPanel() {
+  unsavedOverlay.hidden = true;
+  pendingUnsavedAction = null;
+}
+
+async function continueWithoutSaving() {
+  const action = pendingUnsavedAction;
+  closeUnsavedPanel();
+  if (action) await executeUnsavedAction(action);
+}
+
+async function saveAndContinue() {
+  const action = pendingUnsavedAction;
+  if (!action) {
+    closeUnsavedPanel();
+    return;
+  }
+
+  unsavedSaveButton.disabled = true;
+  unsavedDiscardButton.disabled = true;
+  unsavedCancelButton.disabled = true;
+  unsavedCloseButton.disabled = true;
+  unsavedStatus.textContent = "正在保存当前病历";
+
+  const saved = await saveRecord();
+  if (!saved || isDirty) {
+    unsavedSaveButton.disabled = false;
+    unsavedDiscardButton.disabled = false;
+    unsavedCancelButton.disabled = false;
+    unsavedCloseButton.disabled = false;
+    unsavedStatus.textContent = "保存失败或仍有未保存修改，请处理后再继续。";
+    return;
+  }
+
+  closeUnsavedPanel();
+  await executeUnsavedAction(action);
+}
+
+async function executeUnsavedAction(action) {
+  try {
+    await action();
+  } catch (error) {
+    saveStatus.textContent = error.message || "操作失败";
+  }
+}
+
+function warnBeforeUnload(event) {
+  if (!isDirty || allowUnloadWithoutPrompt) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+function handleLinkNavigation(event) {
+  const link = event.target.closest("a[href]");
+  if (!link || event.defaultPrevented || !isDirty) return;
+  if (link.target && link.target !== "_self") return;
+  if (link.hasAttribute("download")) return;
+
+  const rawHref = link.getAttribute("href") || "";
+  if (!rawHref || rawHref.startsWith("#") || rawHref.startsWith("javascript:")) return;
+
+  event.preventDefault();
+  runWithUnsavedGuard(() => {
+    allowUnloadWithoutPrompt = true;
+    window.location.href = link.href;
+  }, "离开当前页面前，当前病历有未保存修改。");
 }
 
 function renderAddressOptions() {
@@ -472,19 +580,6 @@ async function refreshDbInfo() {
   }
 }
 
-async function suggestNextRecordNo() {
-  if (currentRecordId || valueOf("recordNo")) return;
-  try {
-    const payload = await fetchJson("/api/next-record-no");
-    isHydrating = true;
-    setValue("recordNo", payload.recordNo || "");
-  } catch (error) {
-    // 编号只是辅助录入，接口失败时不阻塞页面使用。
-  } finally {
-    isHydrating = false;
-  }
-}
-
 async function loadRecordList() {
   const params = recordListSearchParams();
   try {
@@ -492,7 +587,7 @@ async function loadRecordList() {
     const records = payload.records || [];
     if (!records.length) {
       recordList.innerHTML = `<div class="record-item"><span>暂无病历</span></div>`;
-      return;
+      return records;
     }
     recordList.innerHTML = records
       .map(
@@ -508,10 +603,19 @@ async function loadRecordList() {
       )
       .join("");
     recordList.querySelectorAll("[data-record-id]").forEach((button) => {
-      button.addEventListener("click", () => loadRecord(button.dataset.recordId));
+      button.addEventListener("click", () => {
+        const nextId = button.dataset.recordId;
+        if (String(nextId) === String(currentRecordId)) return;
+        runWithUnsavedGuard(
+          () => loadRecord(nextId),
+          "打开另一份病历前，当前病历有未保存修改。"
+        );
+      });
     });
+    return records;
   } catch (error) {
     recordList.innerHTML = `<div class="record-item"><span>${escapeHtml(error.message)}</span></div>`;
+    return [];
   }
 }
 
@@ -530,6 +634,10 @@ function recordListSearchParams() {
 function displayRecordNo(record) {
   const no = record.recordNo ? `编号 ${record.recordNo}` : `内部 #${record.id}`;
   return record.address ? `${record.address} · ${no}` : no;
+}
+
+function displayAddressBucket(record) {
+  return record && record.address ? record.address : "无地址";
 }
 
 function formatFormTitle(record) {
@@ -638,15 +746,137 @@ async function exportPdf() {
   }
 }
 
+async function openTrashPanel() {
+  trashOverlay.hidden = false;
+  trashStatus.textContent = "读取中";
+  await loadTrashRecords();
+}
+
+function closeTrashPanel() {
+  trashOverlay.hidden = true;
+}
+
+async function loadTrashRecords() {
+  trashStatus.textContent = "读取中";
+  try {
+    const payload = await fetchJson("/api/trash");
+    renderTrashRecordList(payload.records || []);
+  } catch (error) {
+    trashStatus.textContent = error.message || "读取垃圾桶失败";
+    trashRecordList.innerHTML = `<div class="empty-export">读取失败</div>`;
+  }
+}
+
+function renderTrashRecordList(records) {
+  if (!records.length) {
+    trashStatus.textContent = "垃圾桶为空";
+    trashRecordList.innerHTML = `<div class="empty-export">没有已删除病历</div>`;
+    return;
+  }
+
+  trashStatus.textContent = `共 ${records.length} 条已删除病历`;
+  trashRecordList.innerHTML = records.map(trashRecordMarkup).join("");
+  trashRecordList.querySelectorAll("[data-trash-action-id]").forEach((select) => {
+    select.addEventListener("change", () => handleTrashAction(select));
+  });
+}
+
+function trashRecordMarkup(record) {
+  const title = [
+    displayAddressBucket(record),
+    record.recordNo ? `编号 ${record.recordNo}` : `内部 #${record.id}`,
+    record.name || "未填写姓名",
+  ].join(" · ");
+  const detail = [
+    record.gender,
+    record.age,
+    record.recordDate,
+    record.deletedAt ? `删除于 ${record.deletedAt}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <article class="trash-item">
+      <div class="trash-card-body">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(detail || "未填写基本信息")}</span>
+        <p>${escapeHtml(record.chiefComplaint || "未填写主诉")}</p>
+      </div>
+      <label class="trash-action-label">
+        <span>操作</span>
+        <select data-trash-action-id="${record.id}">
+          <option value="">选择操作</option>
+          <option value="restore">复原该病历</option>
+          <option value="purge">彻底删除该病历</option>
+        </select>
+      </label>
+    </article>
+  `;
+}
+
+async function handleTrashAction(select) {
+  const recordId = select.dataset.trashActionId;
+  const action = select.value;
+  select.value = "";
+  if (!recordId || !action) return;
+
+  if (action === "restore") {
+    await restoreTrashRecord(recordId, select);
+    return;
+  }
+  if (action === "purge") await purgeTrashRecord(recordId, select);
+}
+
+async function restoreTrashRecord(recordId, control) {
+  control.disabled = true;
+  trashStatus.textContent = "正在复原";
+  try {
+    await fetchJson(`/api/records/${recordId}/restore`, { method: "POST" });
+    trashStatus.textContent = "已复原，可在左侧列表查看";
+    await refreshDbInfo();
+    await loadRecordList();
+    await loadTrashRecords();
+  } catch (error) {
+    trashStatus.textContent = error.message || "复原失败";
+  } finally {
+    control.disabled = false;
+  }
+}
+
+async function purgeTrashRecord(recordId, control) {
+  if (!confirm("彻底删除该病历后无法恢复，确定要继续吗？")) return;
+  control.disabled = true;
+  trashStatus.textContent = "正在彻底删除";
+  try {
+    await fetchJson(`/api/records/${recordId}/purge`, { method: "DELETE" });
+    trashStatus.textContent = "已彻底删除";
+    await loadTrashRecords();
+  } catch (error) {
+    trashStatus.textContent = error.message || "彻底删除失败";
+  } finally {
+    control.disabled = false;
+  }
+}
+
 async function loadRecord(id) {
   const payload = await fetchJson(`/api/records/${id}`);
   fillForm(payload.record);
   await loadRecordList();
 }
 
-async function loadInitialRecordFromUrl() {
+async function loadInitialRecordFromUrl(records = []) {
   const id = new URLSearchParams(window.location.search).get("id");
-  if (!id) return;
+  if (!id) {
+    const latestRecord = records[0];
+    if (latestRecord && latestRecord.id) {
+      try {
+        await loadRecord(latestRecord.id);
+      } catch (error) {
+        saveStatus.textContent = error.message || "无法打开最近编辑病历";
+      }
+    }
+    return;
+  }
   try {
     await loadRecord(id);
   } catch (error) {
@@ -668,8 +898,10 @@ async function saveRecord() {
     markClean(response.record.updatedAt ? `已保存 ${response.record.updatedAt}` : "已保存");
     await refreshDbInfo();
     await loadRecordList();
+    return true;
   } catch (error) {
     saveStatus.textContent = error.message || "保存失败";
+    return false;
   } finally {
     saveButton.disabled = false;
   }
@@ -691,11 +923,12 @@ function recordWithSubmittedFallback(record, submitted) {
 
 async function deleteCurrentRecord() {
   if (!currentRecordId) return;
-  if (!confirm("确认删除当前病历？")) return;
+  if (!confirm("确认要删除当前病历吗？")) return;
   deleteButton.disabled = true;
   try {
     await fetchJson(`/api/records/${currentRecordId}`, { method: "DELETE" });
     resetForm();
+    saveStatus.textContent = "已移入垃圾桶";
     await refreshDbInfo();
     await loadRecordList();
   } catch (error) {
@@ -813,10 +1046,9 @@ function resetForm() {
   setTodayIfEmpty();
   formTitle.textContent = "新建病历";
   deleteButton.disabled = true;
-  closeVoicePanel();
+  closeVoicePanel({ restoreFocus: false });
   markClean("未保存");
   isHydrating = false;
-  suggestNextRecordNo();
   loadRecordList();
 }
 
@@ -837,7 +1069,7 @@ async function handleVoiceButton(button) {
 
 async function startRecording(button) {
   try {
-    closeVoicePanel();
+    closeVoicePanel({ restoreFocus: false });
     currentVoiceTarget = button.dataset.target;
     activeVoiceButton = button;
     setVoiceButtonsDisabled(true);
@@ -1037,7 +1269,7 @@ function showVoicePanel(target, text, meta) {
 }
 
 function applyVoiceResult(mode) {
-  const target = document.querySelector(`#${currentVoiceTarget}`);
+  const target = document.getElementById(currentVoiceTarget);
   if (!target) return;
   const text = voiceResult.value.trim();
   if (mode === "replace") {
@@ -1242,12 +1474,19 @@ function markClean(message) {
   saveStatus.textContent = message || "已保存";
 }
 
-function closeVoicePanel() {
+function closeVoicePanel(options = {}) {
+  const shouldRestoreFocus = options.restoreFocus !== false;
+  const restoreTarget = shouldRestoreFocus && !voicePanel.hidden ? currentVoiceTarget : "";
   voicePanel.hidden = true;
   voiceResult.value = "";
   currentVoiceTarget = null;
   document.body.classList.remove("voice-panel-open");
-  window.dispatchEvent(new CustomEvent("aoyao:voice-panel-close"));
+  window.dispatchEvent(new CustomEvent("aoyao:voice-panel-close", {
+    detail: {
+      restoreFocus: Boolean(restoreTarget),
+      target: restoreTarget || "",
+    },
+  }));
 }
 
 function labelForTarget(target) {
