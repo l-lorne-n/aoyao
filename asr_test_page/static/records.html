@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>病历录入</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/records.css?v=20260628_diagnosis_records8" />
+    <link rel="stylesheet" href="/records.css?v=20260629_backup1" />
     <link rel="stylesheet" href="/gamepad-nav.css?v=20260628_diagnosis_records1" />
   </head>
   <body>
@@ -43,6 +43,10 @@
           <div>
             <strong id="formTitle">新建病历</strong>
             <span id="saveStatus">未保存</span>
+            <span id="backupStatus" class="backup-status backup-idle" title="云备份状态">
+              <i aria-hidden="true"></i>
+              <span>云备份检查中</span>
+            </span>
           </div>
           <div class="toolbar-actions">
             <button id="trashButton" type="button">垃圾桶</button>
@@ -258,7 +262,7 @@
       </div>
     </section>
 
-    <script src="/records.js?v=20260628_diagnosis_records8"></script>
+    <script src="/records.js?v=20260629_backup1"></script>
     <script src="/gamepad-nav.js?v=20260628_diagnosis_records5"></script>
   </body>
 </html>

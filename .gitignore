@@ -1,6 +1,7 @@
 .env
 tecent_api_key.txt
 tencent_api_key.txt
+jianguoyun_key.txt
 data/
 output/
 tmp/

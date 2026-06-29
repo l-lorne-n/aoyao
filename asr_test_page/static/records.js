@@ -253,6 +253,7 @@ const chineseNumbers = [
 
 const dbStatus = document.querySelector("#dbStatus");
 const saveStatus = document.querySelector("#saveStatus");
+const backupStatus = document.querySelector("#backupStatus");
 const formTitle = document.querySelector("#formTitle");
 const recordList = document.querySelector("#recordList");
 const addressRecordSearchInput = document.querySelector("#addressRecordSearchInput");
@@ -309,6 +310,8 @@ let exportSelectedIds = new Set();
 let pendingUnsavedAction = null;
 let allowUnloadWithoutPrompt = false;
 let pendingGamepadSaveFocusTarget = "";
+let backupStatusTimer = 0;
+let lastBackupStatusKey = "";
 
 init();
 
@@ -318,6 +321,8 @@ async function init() {
   bindEvents();
   setTodayIfEmpty();
   await refreshDbInfo();
+  refreshBackupStatus();
+  window.setInterval(refreshBackupStatus, 15000);
   const records = await loadRecordList();
   await loadInitialRecordFromUrl(records);
 }
@@ -636,6 +641,58 @@ async function refreshDbInfo() {
     dbStatus.textContent = `本地库 ${payload.recordCount || 0} 条`;
   } catch (error) {
     dbStatus.textContent = "数据库不可用";
+  }
+}
+
+async function refreshBackupStatus() {
+  if (!backupStatus) return;
+  try {
+    const payload = await fetchJson("/api/backup-status");
+    updateBackupStatus(payload.backup || {});
+  } catch (error) {
+    updateBackupStatus({
+      state: "error",
+      message: "云备份状态不可用",
+    });
+  }
+}
+
+function backupStatusText(backup) {
+  const state = backup.state || "idle";
+  if (state === "success") return backup.message || "今日云备份已保存";
+  if (state === "running") return backup.message || "云备份中";
+  if (state === "error") return backup.message || "云备份失败，稍后自动重试";
+  if (state === "disabled") return backup.message || "云备份未配置";
+  return backup.message || "云备份检查中";
+}
+
+function updateBackupStatus(backup) {
+  if (!backupStatus) return;
+  const state = backup.state || "idle";
+  const message = backupStatusText(backup);
+  const statusKey = [
+    state,
+    message,
+    backup.lastSuccessAt || "",
+    backup.nextRetryAt || "",
+  ].join("|");
+  if (statusKey === lastBackupStatusKey) return;
+  lastBackupStatusKey = statusKey;
+
+  backupStatus.classList.remove("backup-idle", "backup-running", "backup-success", "backup-error", "compact");
+  backupStatus.classList.add(`backup-${["running", "success", "error"].includes(state) ? state : "idle"}`);
+  const text = backupStatus.querySelector("span");
+  if (text) text.textContent = message;
+  const titleParts = [message];
+  if (backup.lastSuccessAt) titleParts.push(`上次成功 ${backup.lastSuccessAt}`);
+  if (backup.nextRetryAt) titleParts.push(`下次重试 ${backup.nextRetryAt}`);
+  backupStatus.title = titleParts.join("；");
+
+  window.clearTimeout(backupStatusTimer);
+  if (state === "success" || state === "error" || state === "disabled") {
+    backupStatusTimer = window.setTimeout(() => {
+      backupStatus.classList.add("compact");
+    }, 5000);
   }
 }
 

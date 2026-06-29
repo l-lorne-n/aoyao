@@ -238,6 +238,75 @@ h3 {
   display: block;
 }
 
+.backup-status {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid #d6e1e7;
+  border-radius: 999px;
+  color: #53616c;
+  background: #f8fafb;
+  font-size: 12px;
+  line-height: 1.45;
+  transition:
+    max-width 0.2s ease,
+    padding 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.backup-status i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #9aa6af;
+  box-shadow: 0 0 0 3px rgba(154, 166, 175, 0.12);
+}
+
+.backup-status.compact {
+  padding: 2px 5px;
+}
+
+.backup-status.compact span {
+  display: none;
+}
+
+.backup-running {
+  border-color: #e2c36b;
+  background: #fff8df;
+  color: #70540a;
+}
+
+.backup-running i {
+  background: #d89b00;
+  box-shadow: 0 0 0 3px rgba(216, 155, 0, 0.16);
+}
+
+.backup-success {
+  border-color: #9bcfbd;
+  background: #effaf6;
+  color: #176b57;
+}
+
+.backup-success i {
+  background: #16866f;
+  box-shadow: 0 0 0 3px rgba(22, 134, 111, 0.16);
+}
+
+.backup-error {
+  border-color: #e7b3ae;
+  background: #fff4f2;
+  color: #9b2f2a;
+}
+
+.backup-error i {
+  background: #c94135;
+  box-shadow: 0 0 0 3px rgba(201, 65, 53, 0.16);
+}
+
 .toolbar-actions {
   display: flex;
   gap: 8px;

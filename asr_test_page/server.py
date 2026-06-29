@@ -15,12 +15,14 @@ import os
 import socketserver
 import sqlite3
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 import urllib.parse
 import uuid
 import wave
+import xml.etree.ElementTree as ET
 from ctypes import wintypes
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler
@@ -43,6 +45,8 @@ STATIC_DIR = APP_DIR / "static"
 DATA_DIR = RUNTIME_DIR / "data"
 PDF_OUTPUT_DIR = RUNTIME_DIR / "output" / "pdf"
 DB_PATH = DATA_DIR / "aoyao_records.sqlite3"
+BACKUP_STATE_PATH = DATA_DIR / "backup_state.json"
+BACKUP_TEMP_DIR = RUNTIME_DIR / "tmp" / "backups"
 BUNDLED_SITE_PACKAGES = (
     Path.home()
     / ".cache"
@@ -64,6 +68,21 @@ MAX_JSON_BYTES = 8 * 1024 * 1024
 MAX_AUDIO_BYTES = 5 * 1024 * 1024
 MAX_AUDIO_SECONDS = 60.5
 MAX_RECORD_JSON_BYTES = 2 * 1024 * 1024
+BACKUP_RETRY_SECONDS = 60
+BACKUP_RETENTION_DAYS = 30
+BACKUP_MAGIC = b"AOYAOBAK1"
+BACKUP_STATUS_LOCK = threading.Lock()
+BACKUP_WORKER_STARTED = False
+BACKUP_STATUS: dict[str, Any] = {
+    "state": "idle",
+    "message": "云备份待检查",
+    "configured": False,
+    "updatedAt": "",
+    "lastSuccessAt": "",
+    "lastSuccessDate": "",
+    "lastFile": "",
+    "nextRetryAt": "",
+}
 
 
 def load_dotenv() -> None:
@@ -106,6 +125,41 @@ def load_tencent_key_file() -> None:
         return
 
 
+def parse_local_key_file(path: Path) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    if not path.exists():
+        return parsed
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, value = line.split("=", 1)
+        elif ":" in line:
+            key, value = line.split(":", 1)
+        else:
+            continue
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            parsed[key] = value
+    return parsed
+
+
+def load_backup_key_file() -> None:
+    for key_path in (
+        ROOT_DIR / "jianguoyun_key.txt",
+        APP_DIR / "jianguoyun_key.txt",
+    ):
+        parsed = parse_local_key_file(key_path)
+        if not parsed:
+            continue
+        for key, value in parsed.items():
+            if key.startswith("BACKUP_") and key not in os.environ:
+                os.environ[key] = value
+        return
+
+
 def json_response(
     handler: SimpleHTTPRequestHandler,
     status: int,
@@ -133,6 +187,315 @@ def read_json_body(handler: SimpleHTTPRequestHandler, max_bytes: int = MAX_JSON_
 
 def utc_now_text() -> str:
     return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def backup_now() -> dt.datetime:
+    return dt.datetime.now()
+
+
+def backup_today_text() -> str:
+    return backup_now().strftime("%Y-%m-%d")
+
+
+def backup_iso(value: dt.datetime | None = None) -> str:
+    return (value or backup_now()).replace(microsecond=0).isoformat(sep=" ")
+
+
+def set_backup_status(state: str, message: str, **extra: Any) -> None:
+    with BACKUP_STATUS_LOCK:
+        BACKUP_STATUS.update(
+            {
+                "state": state,
+                "message": message,
+                "updatedAt": backup_iso(),
+            }
+        )
+        BACKUP_STATUS.update(extra)
+
+
+def get_backup_status() -> dict[str, Any]:
+    with BACKUP_STATUS_LOCK:
+        return dict(BACKUP_STATUS)
+
+
+def read_backup_state() -> dict[str, Any]:
+    if not BACKUP_STATE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(BACKUP_STATE_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def write_backup_state(data: dict[str, Any]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    BACKUP_STATE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def backup_config() -> dict[str, str]:
+    webdav_url = os.environ.get("BACKUP_WEBDAV_URL", "").strip()
+    username = os.environ.get("BACKUP_WEBDAV_USERNAME", "").strip()
+    password = os.environ.get("BACKUP_WEBDAV_PASSWORD", "").strip()
+    encryption_password = os.environ.get("BACKUP_ENCRYPTION_PASSWORD", "").strip()
+    app_folder = os.environ.get("BACKUP_WEBDAV_APP", "").strip().strip("/")
+
+    if webdav_url and app_folder:
+        parsed = urllib.parse.urlparse(webdav_url)
+        if parsed.path.rstrip("/") == "/dav":
+            path = f"{parsed.path.rstrip('/')}/{urllib.parse.quote(app_folder)}/"
+            webdav_url = urllib.parse.urlunparse(parsed._replace(path=path))
+
+    if webdav_url and not webdav_url.endswith("/"):
+        webdav_url += "/"
+
+    missing = [
+        name
+        for name, value in (
+            ("BACKUP_WEBDAV_URL", webdav_url),
+            ("BACKUP_WEBDAV_USERNAME", username),
+            ("BACKUP_WEBDAV_PASSWORD", password),
+            ("BACKUP_ENCRYPTION_PASSWORD", encryption_password),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(f"云备份未配置：缺少 {', '.join(missing)}")
+
+    return {
+        "url": webdav_url,
+        "username": username,
+        "password": password,
+        "encryptionPassword": encryption_password,
+    }
+
+
+def backup_auth_header(config: dict[str, str]) -> str:
+    token = base64.b64encode(f"{config['username']}:{config['password']}".encode("utf-8")).decode("ascii")
+    return f"Basic {token}"
+
+
+def webdav_request(
+    config: dict[str, str],
+    method: str,
+    url: str,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> bytes:
+    request_headers = {
+        "Authorization": backup_auth_header(config),
+        "User-Agent": "AoyaoBackup/1.0",
+    }
+    request_headers.update(headers or {})
+    request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        if method == "MKCOL" and exc.code in (405, 409):
+            return b""
+        raise
+
+
+def ensure_webdav_collection(config: dict[str, str]) -> None:
+    webdav_request(config, "MKCOL", config["url"], timeout=20)
+
+
+def create_database_snapshot(snapshot_path: Path) -> None:
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_PATH) as source, sqlite3.connect(snapshot_path) as target:
+        source.backup(target)
+
+
+def derive_backup_key(password: str, salt: bytes) -> bytes:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=390000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
+
+
+def encrypt_backup_file(source_path: Path, encrypted_path: Path, password: str) -> None:
+    from cryptography.fernet import Fernet
+
+    salt = os.urandom(16)
+    key = derive_backup_key(password, salt)
+    encrypted = Fernet(key).encrypt(source_path.read_bytes())
+    encrypted_path.write_bytes(BACKUP_MAGIC + salt + encrypted)
+
+
+def backup_filename(now: dt.datetime) -> str:
+    return f"aoyao_backup_{now.strftime('%Y-%m-%d_%H%M%S')}.sqlite3.enc"
+
+
+def upload_backup_file(config: dict[str, str], encrypted_path: Path, remote_name: str) -> None:
+    remote_url = urllib.parse.urljoin(config["url"], urllib.parse.quote(remote_name))
+    webdav_request(
+        config,
+        "PUT",
+        remote_url,
+        data=encrypted_path.read_bytes(),
+        headers={"Content-Type": "application/octet-stream"},
+        timeout=60,
+    )
+
+
+def webdav_backup_names(config: dict[str, str]) -> list[str]:
+    body = webdav_request(
+        config,
+        "PROPFIND",
+        config["url"],
+        data=b"""<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><displayname /></prop></propfind>""",
+        headers={"Depth": "1", "Content-Type": "application/xml; charset=utf-8"},
+        timeout=30,
+    )
+    names: list[str] = []
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return names
+    for element in root.iter():
+        if not element.tag.endswith("href") or not element.text:
+            continue
+        parsed = urllib.parse.urlparse(element.text)
+        name = urllib.parse.unquote(Path(parsed.path.rstrip("/")).name)
+        if name.startswith("aoyao_backup_") and name.endswith(".sqlite3.enc"):
+            names.append(name)
+    return sorted(set(names))
+
+
+def backup_datetime_from_name(name: str) -> dt.datetime | None:
+    prefix = "aoyao_backup_"
+    suffix = ".sqlite3.enc"
+    if not (name.startswith(prefix) and name.endswith(suffix)):
+        return None
+    value = name[len(prefix) : -len(suffix)]
+    try:
+        return dt.datetime.strptime(value, "%Y-%m-%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def cleanup_remote_backups(config: dict[str, str]) -> None:
+    backups: list[tuple[str, dt.datetime]] = []
+    for name in webdav_backup_names(config):
+        backup_time = backup_datetime_from_name(name)
+        if backup_time:
+            backups.append((name, backup_time))
+
+    cutoff = backup_now() - dt.timedelta(days=BACKUP_RETENTION_DAYS)
+    backups.sort(key=lambda item: item[1], reverse=True)
+    names_to_delete = {
+        name
+        for index, (name, backup_time) in enumerate(backups)
+        if backup_time < cutoff or index >= BACKUP_RETENTION_DAYS
+    }
+    for name in sorted(names_to_delete):
+        remote_url = urllib.parse.urljoin(config["url"], urllib.parse.quote(name))
+        try:
+            webdav_request(config, "DELETE", remote_url, timeout=30)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+
+
+def perform_cloud_backup() -> dict[str, str]:
+    config = backup_config()
+    now = backup_now()
+    remote_name = backup_filename(now)
+    snapshot_path = BACKUP_TEMP_DIR / remote_name.replace(".enc", "")
+    encrypted_path = BACKUP_TEMP_DIR / remote_name
+    BACKUP_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        create_database_snapshot(snapshot_path)
+        encrypt_backup_file(snapshot_path, encrypted_path, config["encryptionPassword"])
+        ensure_webdav_collection(config)
+        upload_backup_file(config, encrypted_path, remote_name)
+        try:
+            cleanup_remote_backups(config)
+        except Exception as exc:
+            print(f"[backup] cleanup failed: {exc}", file=sys.stderr, flush=True)
+    finally:
+        for path in (snapshot_path, encrypted_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+    return {
+        "lastSuccessAt": backup_iso(now),
+        "lastSuccessDate": now.strftime("%Y-%m-%d"),
+        "lastFile": remote_name,
+    }
+
+
+def backup_error_message(error: Exception) -> str:
+    if isinstance(error, urllib.error.URLError):
+        return "云备份失败：网络不可用，稍后自动重试"
+    if isinstance(error, TimeoutError):
+        return "云备份失败：网络超时，稍后自动重试"
+    message = str(error).strip()
+    return f"云备份失败：{message or '稍后自动重试'}"
+
+
+def cloud_backup_worker() -> None:
+    try:
+        config = backup_config()
+    except Exception as exc:
+        set_backup_status("disabled", str(exc), configured=False)
+        return
+
+    saved_state = read_backup_state()
+    today = backup_today_text()
+    if saved_state.get("lastSuccessDate") == today:
+        set_backup_status(
+            "success",
+            "今日云备份已保存",
+            configured=True,
+            lastSuccessAt=str(saved_state.get("lastSuccessAt", "")),
+            lastSuccessDate=today,
+            lastFile=str(saved_state.get("lastFile", "")),
+            nextRetryAt="",
+        )
+        return
+
+    while True:
+        set_backup_status("running", "云备份中", configured=True, nextRetryAt="")
+        try:
+            result = perform_cloud_backup()
+            write_backup_state(result)
+            set_backup_status(
+                "success",
+                "今日云备份已保存",
+                configured=True,
+                nextRetryAt="",
+                **result,
+            )
+            return
+        except Exception as exc:
+            next_retry = backup_now() + dt.timedelta(seconds=BACKUP_RETRY_SECONDS)
+            set_backup_status(
+                "error",
+                backup_error_message(exc),
+                configured=True,
+                nextRetryAt=backup_iso(next_retry),
+            )
+            time.sleep(BACKUP_RETRY_SECONDS)
+
+
+def start_cloud_backup_worker() -> None:
+    global BACKUP_WORKER_STARTED
+    if BACKUP_WORKER_STARTED:
+        return
+    BACKUP_WORKER_STARTED = True
+    thread = threading.Thread(target=cloud_backup_worker, name="aoyao-cloud-backup", daemon=True)
+    thread.start()
 
 
 def init_database() -> None:
@@ -1586,6 +1949,9 @@ class AsrTestHandler(SimpleHTTPRequestHandler):
                 {"ok": True, "dbPath": str(DB_PATH), "recordCount": len(list_records())},
             )
             return
+        if parsed_path.path == "/api/backup-status":
+            json_response(self, HTTPStatus.OK, {"ok": True, "backup": get_backup_status()})
+            return
         if parsed_path.path == "/api/gamepad-state":
             json_response(self, HTTPStatus.OK, read_windows_gamepad_state())
             return
@@ -1750,7 +2116,9 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 def run_server(host: str, port: int) -> None:
     load_dotenv()
     load_tencent_key_file()
+    load_backup_key_file()
     init_database()
+    start_cloud_backup_worker()
     with ThreadedTCPServer((host, port), AsrTestHandler) as server:
         url = f"http://{host}:{port}"
         print(f"ASR test page: {url}", flush=True)
