@@ -38,7 +38,7 @@ async function loadHistory() {
 function renderTimeline(events, date) {
   if (!events.length) {
     historyStatus.textContent = date ? `${formatDate(date)} 没有病历记录` : "暂无可按时间展示的病历";
-    timeline.innerHTML = `<div class="empty-state">没有匹配的建档或复诊记录</div>`;
+    timeline.innerHTML = `<div class="empty-state">没有匹配的建档或诊断记录</div>`;
     return;
   }
 
@@ -63,10 +63,10 @@ function renderCard(event) {
   const recordNo = event.recordNo ? `编号 ${event.recordNo}` : `内部 #${event.recordId}`;
   const name = event.name || "未填写姓名";
   const typeText = event.eventType === "visit"
-    ? `复诊 · ${event.eventLabel || ""}`.trim()
+    ? `诊断 · ${event.eventLabel || ""}`.trim()
     : "首次建档";
   const summary = event.summary || "未填写";
-  const summaryLabel = event.summaryLabel || (event.eventType === "visit" ? "辨证" : "主诉");
+  const summaryLabel = event.summaryLabel || "辨证";
   const metaParts = [
     recordNo,
     name,

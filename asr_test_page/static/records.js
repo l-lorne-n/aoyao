@@ -1,46 +1,12 @@
 const TARGET_SAMPLE_RATE = 16000;
 const MAX_SECONDS = 60;
 
-const symptomOptions = [
-  "口干口渴",
-  "口淡",
-  "口苦",
-  "怕冷",
-  "怕热",
-  "嗜睡",
-  "失眠多梦",
-  "食欲好",
-  "纳呆",
-  "大便干硬",
-  "大便稀溏",
-  "尿急尿频",
-  "夜尿",
-];
-
-const menstrualOptions = [
-  "色淡红",
-  "色暗红",
-  "量多",
-  "量少",
-  "淋漓不尽",
-  "有血块",
-  "提前",
-  "拖后",
-  "周期不规律",
-];
-
-const dietAdviceOptions = [
-  "忌生冷寒凉",
-  "忌肥甘厚味",
-  "忌辛辣煎炸/燥热",
-  "忌白萝卜浓茶",
-];
-
-const lifestyleAdviceOptions = [
-  "作息规律戒熬夜",
-  "加强锻炼适度运动",
-  "戒房事",
-  "戒酒",
+const visitMetricFields = [
+  { key: "bloodPressure", label: "血压", placeholder: "", format: "bloodPressure" },
+  { key: "heartRate", label: "心率", placeholder: "" },
+  { key: "bloodSugar", label: "血糖", placeholder: "" },
+  { key: "uricAcid", label: "尿酸", placeholder: "" },
+  { key: "nightUrineCount", label: "夜尿", placeholder: "" },
 ];
 
 const addressOptions = [
@@ -342,15 +308,12 @@ let timerId = 0;
 let exportSelectedIds = new Set();
 let pendingUnsavedAction = null;
 let allowUnloadWithoutPrompt = false;
+let pendingGamepadSaveFocusTarget = "";
 
 init();
 
 async function init() {
   renderAddressOptions();
-  renderCheckboxGroup("symptomOptions", symptomOptions, "symptom");
-  renderCheckboxGroup("menstrualOptions", menstrualOptions, "menstrual");
-  renderCheckboxGroup("dietAdviceOptions", dietAdviceOptions, "dietAdvice");
-  renderCheckboxGroup("lifestyleAdviceOptions", lifestyleAdviceOptions, "lifestyleAdvice");
   renderVisits();
   bindEvents();
   setTodayIfEmpty();
@@ -390,6 +353,7 @@ function bindEvents() {
   voiceAppendButton.addEventListener("click", () => applyVoiceResult("append"));
   voiceReplaceButton.addEventListener("click", () => applyVoiceResult("replace"));
   voiceCancelButton.addEventListener("click", () => closeVoicePanel());
+  window.addEventListener("aoyao:save-via-gamepad", rememberGamepadSaveFocus);
   window.addEventListener("beforeunload", warnBeforeUnload);
   document.addEventListener("click", handleLinkNavigation);
   document.addEventListener("click", (event) => {
@@ -397,12 +361,61 @@ function bindEvents() {
     if (!button) return;
     handleVoiceButton(button);
   });
-  document.querySelector("#recordForm").addEventListener("input", () => {
+  document.querySelector("#recordForm").addEventListener("input", (event) => {
+    handleFormDateSync(event);
     markDirty();
   });
-  document.querySelector("#recordForm").addEventListener("change", () => {
+  document.querySelector("#recordForm").addEventListener("change", (event) => {
+    handleFormDateSync(event);
     markDirty();
   });
+}
+
+function rememberGamepadSaveFocus(event) {
+  const targetId = event.detail && event.detail.target;
+  const target = targetId ? document.getElementById(targetId) : null;
+  const form = document.querySelector("#recordForm");
+  pendingGamepadSaveFocusTarget = target instanceof HTMLElement && form && form.contains(target) ? target.id : "";
+}
+
+function consumeGamepadSaveFocusTarget() {
+  const targetId = pendingGamepadSaveFocusTarget;
+  pendingGamepadSaveFocusTarget = "";
+  return targetId;
+}
+
+function currentFormFocusTargetId() {
+  const form = document.querySelector("#recordForm");
+  if (!form) return "";
+  const active = document.activeElement;
+  const marked = form.querySelector(".gamepad-focus");
+  const target = active instanceof HTMLElement && active.id && form.contains(active) ? active : marked;
+  return target instanceof HTMLElement && target.id ? target.id : "";
+}
+
+function restoreGamepadSaveFocus(targetId) {
+  if (!targetId) return;
+  const focusTarget = () => {
+    const target = document.getElementById(targetId);
+    if (!(target instanceof HTMLElement)) return false;
+    document.body.classList.add("gamepad-nav-active");
+    document
+      .querySelectorAll(".gamepad-focus")
+      .forEach((element) => element.classList.remove("gamepad-focus"));
+    target.classList.add("gamepad-focus");
+    target.focus({ preventScroll: true });
+    return true;
+  };
+  const dispatchRestore = () => {
+    focusTarget();
+    window.dispatchEvent(new CustomEvent("aoyao:restore-gamepad-focus", {
+      detail: { target: targetId },
+    }));
+  };
+  focusTarget();
+  window.requestAnimationFrame(() => window.requestAnimationFrame(dispatchRestore));
+  window.setTimeout(dispatchRestore, 80);
+  window.setTimeout(dispatchRestore, 180);
 }
 
 function runWithUnsavedGuard(action, message) {
@@ -514,18 +527,23 @@ function renderVisits() {
         <div class="visit-block">
           <div class="visit-row">
             <div class="visit-title">${label}</div>
-            ${textareaWithVoice(`${prefix}Diagnosis`, "辨证")}
+            <div class="visit-diagnosis-field">
+              ${textareaWithVoice(`${prefix}Diagnosis`, "辨证")}
+            </div>
             ${textareaWithVoice(`${prefix}Plan`, "内调方案")}
-            ${textareaWithVoice(`${prefix}Followup`, "回访情况")}
             <label class="visit-date-field">
               <span>时间</span>
               <input id="${prefix}Date" type="date" />
             </label>
+            <div class="visit-metrics-wrap">
+              ${visitMetricsMarkup(prefix)}
+            </div>
           </div>
         </div>
       `;
     })
     .join("");
+  syncFirstVisitDateFromRecordDate({ forceIfEmpty: true });
 }
 
 function addVisit() {
@@ -542,17 +560,58 @@ function visitLabel(index) {
   return `第${chineseNumbers[index] || index + 1}次`;
 }
 
-function textareaWithVoice(id, label) {
+function textareaWithVoice(id, label, rows = 6) {
   return `
     <div>
       <div class="field-head">
         <label for="${id}">${label}</label>
       </div>
       <div class="voice-textarea">
-        <textarea id="${id}" rows="6"></textarea>
+        <textarea id="${id}" rows="${rows}"></textarea>
         ${voiceButtonMarkup(id, label)}
       </div>
     </div>
+  `;
+}
+
+function visitMetricsMarkup(prefix) {
+  return `
+    <div class="visit-metrics-grid">
+      ${visitMetricFields.map((field) => visitMetricMarkup(prefix, field)).join("")}
+    </div>
+  `;
+}
+
+function visitMetricMarkup(prefix, field) {
+  const id = `${prefix}${capitalize(field.key)}`;
+  const label = escapeHtml(field.label);
+  const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "";
+  const pattern = field.format === "bloodPressure" ? "[0-9/]*" : "[0-9]*";
+  return `
+    <label for="${id}" class="visit-metric-field">
+      <span>${label}</span>
+      <div class="visit-metric-input">
+        <input id="${id}" class="metric-number-input" inputmode="numeric" pattern="${pattern}" data-metric-key="${field.key}"${placeholder} />
+        ${inlineVoiceButtonMarkup(id, field.label)}
+      </div>
+    </label>
+  `;
+}
+
+function inlineVoiceButtonMarkup(id, label) {
+  const safeLabel = escapeHtml(label);
+  return `
+    <button
+      type="button"
+      class="voice-button voice-icon-button voice-inline-button"
+      data-target="${id}"
+      data-voice-mode="number"
+      data-voice-label="${safeLabel}"
+      data-gamepad-skip="true"
+      tabindex="-1"
+      aria-label="录制${safeLabel}"
+      title="录制${safeLabel}"
+    ></button>
   `;
 }
 
@@ -597,7 +656,7 @@ async function loadRecordList() {
           }" data-record-id="${record.id}">
             <strong><span class="record-no">${escapeHtml(displayRecordNo(record))}</span> ${escapeHtml(record.name || "未填写姓名")}</strong>
             <span>${escapeHtml([record.gender, record.age, record.recordDate].filter(Boolean).join(" · "))}</span>
-            <span>${escapeHtml(record.chiefComplaint || "未填写主诉")}</span>
+            <span>${escapeHtml(record.summary || record.chiefComplaint || "未填写诊断")}</span>
           </button>
         `
       )
@@ -693,7 +752,7 @@ function renderExportRecordList(records) {
           <input type="checkbox" data-export-record-id="${record.id}" ${checked} />
           <span>
             <strong>${escapeHtml(displayRecordNo(record))} · ${escapeHtml(record.name || "未填写姓名")}</strong>
-            <span>${escapeHtml([record.gender, record.age, record.recordDate, record.chiefComplaint].filter(Boolean).join(" · "))}</span>
+            <span>${escapeHtml([record.gender, record.age, record.recordDate, record.summary || record.chiefComplaint].filter(Boolean).join(" · "))}</span>
           </span>
         </label>
       `;
@@ -800,7 +859,7 @@ function trashRecordMarkup(record) {
       <div class="trash-card-body">
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(detail || "未填写基本信息")}</span>
-        <p>${escapeHtml(record.chiefComplaint || "未填写主诉")}</p>
+        <p>${escapeHtml(record.summary || record.chiefComplaint || "未填写诊断")}</p>
       </div>
       <label class="trash-action-label">
         <span>操作</span>
@@ -885,6 +944,7 @@ async function loadInitialRecordFromUrl(records = []) {
 }
 
 async function saveRecord() {
+  const restoreFocusTarget = consumeGamepadSaveFocusTarget() || currentFormFocusTargetId();
   saveButton.disabled = true;
   saveStatus.textContent = "保存中";
   try {
@@ -895,6 +955,7 @@ async function saveRecord() {
       body: JSON.stringify(payload),
     });
     fillForm(recordWithSubmittedFallback(response.record, payload));
+    restoreGamepadSaveFocus(restoreFocusTarget);
     markClean(response.record.updatedAt ? `已保存 ${response.record.updatedAt}` : "已保存");
     await refreshDbInfo();
     await loadRecordList();
@@ -904,6 +965,7 @@ async function saveRecord() {
     return false;
   } finally {
     saveButton.disabled = false;
+    restoreGamepadSaveFocus(restoreFocusTarget);
   }
 }
 
@@ -939,6 +1001,7 @@ async function deleteCurrentRecord() {
 }
 
 function collectForm() {
+  const visits = collectVisits();
   return {
     id: currentRecordId,
     patient: {
@@ -950,26 +1013,15 @@ function collectForm() {
       phone: valueOf("patientPhone"),
       recordDate: valueOf("recordDate"),
     },
-    chiefComplaint: valueOf("chiefComplaint"),
+    chiefComplaint: firstDiagnosisSummary(visits),
     pastHistory: valueOf("pastHistory"),
     allergyHistory: valueOf("allergyHistory"),
-    symptoms: checkedValues("symptom"),
-    vitals: {
-      bloodPressure: valueOf("bloodPressure"),
-      heartRate: valueOf("heartRate"),
-      bloodSugar: valueOf("bloodSugar"),
-      uricAcid: valueOf("uricAcid"),
-      nightUrineCount: valueOf("nightUrineCount"),
-    },
-    menstrual: {
-      selected: checkedValues("menstrual"),
-    },
-    tonguePulse: valueOf("tonguePulse"),
-    advice: {
-      diet: checkedValues("dietAdvice"),
-      lifestyle: checkedValues("lifestyleAdvice"),
-    },
-    visits: collectVisits(),
+    symptoms: [],
+    vitals: {},
+    menstrual: { selected: [] },
+    tonguePulse: "",
+    advice: { diet: [], lifestyle: [] },
+    visits,
     notes: valueOf("notes"),
   };
 }
@@ -980,8 +1032,20 @@ function collectVisits() {
     date: valueOf(`visit${index}Date`),
     diagnosis: valueOf(`visit${index}Diagnosis`),
     plan: valueOf(`visit${index}Plan`),
-    followup: valueOf(`visit${index}Followup`),
+    vitals: collectVisitVitals(index),
   }));
+}
+
+function collectVisitVitals(index) {
+  const prefix = `visit${index}`;
+  return Object.fromEntries(
+    visitMetricFields.map((field) => [field.key, metricValueForField(field.key, valueOf(`${prefix}${capitalize(field.key)}`))])
+  );
+}
+
+function firstDiagnosisSummary(visits) {
+  const firstFilled = visits.find((visit) => String(visit.diagnosis || "").trim());
+  return firstFilled ? firstFilled.diagnosis.trim() : "";
 }
 
 function fillForm(record) {
@@ -995,27 +1059,15 @@ function fillForm(record) {
   setValue("patientAge", patient.age || "");
   setValue("patientPhone", patient.phone || "");
   setValue("recordDate", patient.recordDate || "");
-  setValue("chiefComplaint", record.chiefComplaint || "");
   setValue("pastHistory", record.pastHistory || "");
   setValue("allergyHistory", record.allergyHistory || "");
-  setValue("tonguePulse", record.tonguePulse || "");
   setValue("notes", record.notes || "");
-  setCheckedValues("symptom", record.symptoms || []);
-  setCheckedValues("menstrual", (record.menstrual && record.menstrual.selected) || []);
-  setCheckedValues("dietAdvice", (record.advice && record.advice.diet) || []);
-  setCheckedValues("lifestyleAdvice", (record.advice && record.advice.lifestyle) || []);
-
-  const vitals = record.vitals || {};
-  setValue("bloodPressure", vitals.bloodPressure || "");
-  setValue("heartRate", vitals.heartRate || "");
-  setValue("bloodSugar", vitals.bloodSugar || "");
-  setValue("uricAcid", vitals.uricAcid || "");
-  setValue("nightUrineCount", vitals.nightUrineCount || "");
 
   const visits = Array.isArray(record.visits) ? record.visits : [];
   visitCount = Math.max(INITIAL_VISIT_COUNT, visits.length || INITIAL_VISIT_COUNT);
   renderVisits();
-  fillVisits(visits);
+  fillVisits(visits, record.vitals || {});
+  syncFirstVisitDateFromRecordDate({ forceIfEmpty: true });
 
   formTitle.textContent = formatFormTitle(record);
   deleteButton.disabled = !currentRecordId;
@@ -1023,13 +1075,21 @@ function fillForm(record) {
   isHydrating = false;
 }
 
-function fillVisits(visits) {
+function fillVisits(visits, legacyVitals = {}) {
   Array.from({ length: visitCount }).forEach((_, index) => {
     const visit = visits[index] || {};
     setValue(`visit${index}Date`, visit.date || "");
     setValue(`visit${index}Diagnosis`, visit.diagnosis || "");
     setValue(`visit${index}Plan`, visit.plan || "");
-    setValue(`visit${index}Followup`, visit.followup || "");
+    fillVisitVitals(index, visit.vitals || (index === 0 ? legacyVitals : {}));
+  });
+}
+
+function fillVisitVitals(index, vitals = {}) {
+  const prefix = `visit${index}`;
+  visitMetricFields.forEach((field) => {
+    const id = `${prefix}${capitalize(field.key)}`;
+    setValue(id, metricValueForField(field.key, vitals[field.key] || ""));
   });
 }
 
@@ -1039,10 +1099,6 @@ function resetForm() {
   document.querySelector("#recordForm").reset();
   visitCount = INITIAL_VISIT_COUNT;
   renderVisits();
-  setCheckedValues("symptom", []);
-  setCheckedValues("menstrual", []);
-  setCheckedValues("dietAdvice", []);
-  setCheckedValues("lifestyleAdvice", []);
   setTodayIfEmpty();
   formTitle.textContent = "新建病历";
   deleteButton.disabled = true;
@@ -1056,6 +1112,44 @@ function setTodayIfEmpty() {
   if (!valueOf("recordDate")) {
     setValue("recordDate", new Date().toISOString().slice(0, 10));
   }
+  syncFirstVisitDateFromRecordDate({ forceIfEmpty: true });
+}
+
+function handleFormDateSync(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  sanitizeMetricInput(target);
+  if (target.id === "recordDate") {
+    syncFirstVisitDateFromRecordDate();
+  } else if (target.id === "visit0Date") {
+    updateFirstVisitDateAutoFlag();
+  }
+}
+
+function syncFirstVisitDateFromRecordDate(options = {}) {
+  const recordDate = document.querySelector("#recordDate");
+  const firstVisitDate = document.querySelector("#visit0Date");
+  if (!recordDate || !firstVisitDate || !recordDate.value) return;
+
+  const shouldSync =
+    options.force ||
+    (options.forceIfEmpty && !firstVisitDate.value) ||
+    firstVisitDate.dataset.autoFromRecordDate === "true" ||
+    firstVisitDate.value === firstVisitDate.dataset.lastRecordDate;
+
+  if (!shouldSync) return;
+  firstVisitDate.value = recordDate.value;
+  firstVisitDate.dataset.autoFromRecordDate = "true";
+  firstVisitDate.dataset.lastRecordDate = recordDate.value;
+}
+
+function updateFirstVisitDateAutoFlag() {
+  const recordDate = document.querySelector("#recordDate");
+  const firstVisitDate = document.querySelector("#visit0Date");
+  if (!recordDate || !firstVisitDate) return;
+  firstVisitDate.dataset.autoFromRecordDate =
+    firstVisitDate.value && firstVisitDate.value === recordDate.value ? "true" : "false";
+  firstVisitDate.dataset.lastRecordDate = recordDate.value || "";
 }
 
 async function handleVoiceButton(button) {
@@ -1275,8 +1369,11 @@ function applyVoiceResult(mode) {
   if (mode === "replace") {
     target.value = text;
   } else if (text) {
-    target.value = target.value.trim() ? `${target.value.trim()}\n${text}` : text;
+    const separator = target instanceof HTMLTextAreaElement ? "\n" : " ";
+    target.value = target.value.trim() ? `${target.value.trim()}${separator}${text}` : text;
   }
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
   markDirty();
   closeVoicePanel();
 }
@@ -1331,7 +1428,10 @@ function applyAddressRecordVoice(button, rawText) {
 function applyNumberVoice(button, rawText) {
   const targetId = button.dataset.target;
   const target = targetId ? document.querySelector(`#${targetId}`) : null;
-  const number = extractRecordNo(rawText);
+  const number =
+    target instanceof HTMLInputElement && target.classList.contains("metric-number-input")
+      ? metricValueForField(target.dataset.metricKey, rawText)
+      : extractRecordNo(rawText);
   if (!target || !number) {
     showDirectVoiceStatus(`未识别到数字：${rawText || "空"}`);
     return;
@@ -1406,9 +1506,41 @@ function extractRecordNo(text) {
   const arabic = String(text || "").match(/\d+/);
   if (arabic) return arabic[0];
 
+  const englishNumber = englishNumberToText(text);
+  if (englishNumber) return englishNumber;
+
   const chineseNumberMatches = String(text || "").match(/[零〇一二两三四五六七八九十百千万幺]+/g);
   if (!chineseNumberMatches || !chineseNumberMatches.length) return "";
   return chineseNumberToText(chineseNumberMatches[chineseNumberMatches.length - 1]);
+}
+
+function englishNumberToText(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[，,。.;；:：、\s]/g, "");
+  const mappings = new Map([
+    ["zero", "0"],
+    ["oh", "0"],
+    ["o", "0"],
+    ["one", "1"],
+    ["won", "1"],
+    ["two", "2"],
+    ["too", "2"],
+    ["to", "2"],
+    ["are", "2"],
+    ["r", "2"],
+    ["three", "3"],
+    ["four", "4"],
+    ["for", "4"],
+    ["five", "5"],
+    ["six", "6"],
+    ["seven", "7"],
+    ["eight", "8"],
+    ["ate", "8"],
+    ["nine", "9"],
+  ]);
+  return mappings.get(normalized) || "";
 }
 
 function chineseNumberToText(value) {
@@ -1505,11 +1637,13 @@ function elapsedSeconds() {
 }
 
 function valueOf(id) {
-  return document.querySelector(`#${id}`).value.trim();
+  const element = document.querySelector(`#${id}`);
+  return element ? element.value.trim() : "";
 }
 
 function setValue(id, value) {
   const element = document.querySelector(`#${id}`);
+  if (!element) return;
   const nextValue = value || "";
   if (
     element instanceof HTMLSelectElement &&
@@ -1532,6 +1666,39 @@ function setCheckedValues(name, values) {
   document.querySelectorAll(`input[name="${name}"]`).forEach((input) => {
     input.checked = set.has(input.value);
   });
+}
+
+function sanitizeMetricInput(element) {
+  if (!(element instanceof HTMLInputElement) || !element.classList.contains("metric-number-input")) return;
+  const nextValue = metricValueForField(element.dataset.metricKey, element.value);
+  if (element.value !== nextValue) {
+    element.value = nextValue;
+  }
+}
+
+function metricValueForField(key, value) {
+  if (key === "bloodPressure") return bloodPressureValue(value);
+  return metricNumberValue(value);
+}
+
+function bloodPressureValue(value) {
+  const text = String(value || "");
+  const digitGroups = text.match(/\d+/g);
+  if (digitGroups && digitGroups.length >= 2) return `${digitGroups[0]}/${digitGroups[1]}`;
+  if (digitGroups && digitGroups.length === 1) return digitGroups[0];
+  return extractRecordNo(text);
+}
+
+function metricNumberValue(value) {
+  const text = String(value || "");
+  const digitGroups = text.match(/\d+/g);
+  if (digitGroups && digitGroups.length) return digitGroups.join("");
+  return extractRecordNo(text);
+}
+
+function capitalize(value) {
+  const text = String(value || "");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
 }
 
 async function fetchJson(url, options) {

@@ -211,6 +211,8 @@ def normalize_record(payload: dict[str, Any]) -> dict[str, Any]:
     patient = payload.get("patient") if isinstance(payload.get("patient"), dict) else {}
     address = str(patient.get("address", payload.get("address", ""))).strip()
     record_no = str(patient.get("recordNo", payload.get("recordNo", ""))).strip()
+    visits = payload.get("visits") if isinstance(payload.get("visits"), list) else []
+    chief_complaint = str(payload.get("chiefComplaint", "")).strip() or first_diagnosis_summary(visits)
     normalized = {
         "id": payload.get("id"),
         "patient": {
@@ -222,7 +224,7 @@ def normalize_record(payload: dict[str, Any]) -> dict[str, Any]:
             "phone": str(patient.get("phone", "")).strip(),
             "recordDate": str(patient.get("recordDate", "")).strip(),
         },
-        "chiefComplaint": str(payload.get("chiefComplaint", "")).strip(),
+        "chiefComplaint": chief_complaint,
         "pastHistory": str(payload.get("pastHistory", "")).strip(),
         "allergyHistory": str(payload.get("allergyHistory", "")).strip(),
         "symptoms": payload.get("symptoms") if isinstance(payload.get("symptoms"), list) else [],
@@ -230,7 +232,7 @@ def normalize_record(payload: dict[str, Any]) -> dict[str, Any]:
         "menstrual": payload.get("menstrual") if isinstance(payload.get("menstrual"), dict) else {},
         "tonguePulse": str(payload.get("tonguePulse", "")).strip(),
         "advice": payload.get("advice") if isinstance(payload.get("advice"), dict) else {},
-        "visits": payload.get("visits") if isinstance(payload.get("visits"), list) else [],
+        "visits": visits,
         "notes": str(payload.get("notes", "")).strip(),
     }
     return normalized
@@ -398,8 +400,8 @@ def list_records(
         has_search_filter = True
     if text_query:
         like = f"%{text_query}%"
-        conditions.append("(name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?)")
-        params.extend([like, like, like])
+        conditions.append("(name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ? OR data_json LIKE ?)")
+        params.extend([like, like, like, like])
         has_search_filter = True
 
     if legacy_query and not has_search_filter:
@@ -407,10 +409,10 @@ def list_records(
         conditions.append(
             """
             (address LIKE ? OR record_no LIKE ? OR name LIKE ? OR phone LIKE ? OR chief_complaint LIKE ?
-             OR past_history LIKE ? OR allergy_history LIKE ? OR tongue_pulse LIKE ?)
+             OR past_history LIKE ? OR allergy_history LIKE ? OR tongue_pulse LIKE ? OR data_json LIKE ?)
             """
         )
-        params.extend([like, like, like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like, like])
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -419,7 +421,7 @@ def list_records(
         rows = conn.execute(
             f"""
             SELECT id, created_at, updated_at, address, record_no, record_date, name, gender, age, phone,
-                   chief_complaint
+                   chief_complaint, data_json
             FROM records
             {where}
             ORDER BY updated_at DESC
@@ -428,22 +430,30 @@ def list_records(
             params,
         ).fetchall()
 
-    return [
-        {
-            "id": row["id"],
-            "address": row["address"] or "",
-            "recordNo": row["record_no"] or "",
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-            "recordDate": row["record_date"] or "",
-            "name": row["name"] or "",
-            "gender": row["gender"] or "",
-            "age": row["age"] or "",
-            "phone": row["phone"] or "",
-            "chiefComplaint": (row["chief_complaint"] or "")[:80],
-        }
-        for row in rows
-    ]
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            data = json.loads(row["data_json"])
+        except json.JSONDecodeError:
+            data = {}
+        summary = record_diagnosis_summary(data, row["chief_complaint"])
+        records.append(
+            {
+                "id": row["id"],
+                "address": row["address"] or "",
+                "recordNo": row["record_no"] or "",
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"],
+                "recordDate": row["record_date"] or "",
+                "name": row["name"] or "",
+                "gender": row["gender"] or "",
+                "age": row["age"] or "",
+                "phone": row["phone"] or "",
+                "chiefComplaint": (row["chief_complaint"] or "")[:80],
+                "summary": summary,
+            }
+        )
+    return records
 
 
 def normalize_date_filter(value: str) -> str:
@@ -458,6 +468,42 @@ def normalize_date_filter(value: str) -> str:
 def history_summary(value: Any) -> str:
     text = " ".join(str(value or "").split())
     return text[:120]
+
+
+def first_diagnosis_summary(visits: Any) -> str:
+    if not isinstance(visits, list):
+        return ""
+    for visit in visits:
+        if not isinstance(visit, dict):
+            continue
+        diagnosis = str(visit.get("diagnosis") or "").strip()
+        if diagnosis:
+            return diagnosis
+    return ""
+
+
+def record_diagnosis_summary(data: dict[str, Any], fallback: Any = "") -> str:
+    summary = first_diagnosis_summary(data.get("visits"))
+    return history_summary(summary or fallback)
+
+
+def visit_vitals(visit: dict[str, Any], fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    vitals = visit.get("vitals") if isinstance(visit.get("vitals"), dict) else {}
+    if vitals:
+        return vitals
+    return fallback or {}
+
+
+def visit_vitals_text(vitals: dict[str, Any]) -> str:
+    labels = [
+        ("血压", "bloodPressure"),
+        ("心率", "heartRate"),
+        ("血糖", "bloodSugar"),
+        ("尿酸", "uricAcid"),
+        ("夜尿", "nightUrineCount"),
+    ]
+    pieces = [f"{label}：{pdf_text(vitals.get(key), '')}" for label, key in labels if str(vitals.get(key) or "").strip()]
+    return "    ".join(pieces) if pieces else " "
 
 
 def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
@@ -504,8 +550,8 @@ def list_history_events(date_filter: str = "") -> list[dict[str, Any]]:
                     "eventType": "record",
                     "eventLabel": "首次建档",
                     "eventDate": record_date,
-                    "summaryLabel": "主诉",
-                    "summary": history_summary(data.get("chiefComplaint") or row["chief_complaint"]),
+                    "summaryLabel": "辨证",
+                    "summary": record_diagnosis_summary(data, row["chief_complaint"]),
                     "sortText": f"{record_date} {row['updated_at']} {record_id:08d} record",
                 }
             )
@@ -606,7 +652,7 @@ def list_deleted_records() -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT id, created_at, updated_at, deleted_at, address, record_no, record_date, name, gender, age, phone,
-                   chief_complaint
+                   chief_complaint, data_json
             FROM records
             WHERE deleted_at IS NOT NULL
             ORDER BY deleted_at DESC, updated_at DESC
@@ -614,23 +660,30 @@ def list_deleted_records() -> list[dict[str, Any]]:
             """
         ).fetchall()
 
-    return [
-        {
-            "id": row["id"],
-            "address": row["address"] or "",
-            "recordNo": row["record_no"] or "",
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-            "deletedAt": row["deleted_at"] or "",
-            "recordDate": row["record_date"] or "",
-            "name": row["name"] or "",
-            "gender": row["gender"] or "",
-            "age": row["age"] or "",
-            "phone": row["phone"] or "",
-            "chiefComplaint": row["chief_complaint"] or "",
-        }
-        for row in rows
-    ]
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            data = json.loads(row["data_json"])
+        except json.JSONDecodeError:
+            data = {}
+        records.append(
+            {
+                "id": row["id"],
+                "address": row["address"] or "",
+                "recordNo": row["record_no"] or "",
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"],
+                "deletedAt": row["deleted_at"] or "",
+                "recordDate": row["record_date"] or "",
+                "name": row["name"] or "",
+                "gender": row["gender"] or "",
+                "age": row["age"] or "",
+                "phone": row["phone"] or "",
+                "chiefComplaint": row["chief_complaint"] or "",
+                "summary": record_diagnosis_summary(data, row["chief_complaint"]),
+            }
+        )
+    return records
 
 
 def next_record_no() -> str:
@@ -804,9 +857,7 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
             story.append(PageBreak())
 
         patient = record.get("patient") if isinstance(record.get("patient"), dict) else {}
-        vitals = record.get("vitals") if isinstance(record.get("vitals"), dict) else {}
-        menstrual = record.get("menstrual") if isinstance(record.get("menstrual"), dict) else {}
-        advice = record.get("advice") if isinstance(record.get("advice"), dict) else {}
+        legacy_vitals = record.get("vitals") if isinstance(record.get("vitals"), dict) else {}
         visits = record.get("visits") if isinstance(record.get("visits"), list) else []
         address = patient.get("address") or ""
         record_no = patient.get("recordNo") or record.get("recordNo") or f"内部ID {record.get('id')}"
@@ -833,131 +884,41 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
                 "",
             ],
             [
-                box_paragraph("主诉", styles["label"]),
-                box_paragraph(record.get("chiefComplaint"), styles["body"], min_lines=6),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ],
-            [
                 box_paragraph("既往史", styles["label"]),
-                box_paragraph(record.get("pastHistory"), styles["body"], min_lines=2),
+                box_paragraph(record.get("pastHistory"), styles["body"], min_lines=3),
                 "",
                 "",
                 "",
                 box_paragraph("过敏史", styles["label"]),
-                box_paragraph(record.get("allergyHistory"), styles["body"], min_lines=2),
-                "",
-            ],
-            [
-                box_paragraph("体征表现", styles["label"]),
-                box_paragraph(checkbox_options(PDF_SYMPTOM_OPTIONS[:7], record.get("symptoms")), styles["small"]),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ],
-            [
-                "",
-                box_paragraph(
-                    checkbox_options(PDF_SYMPTOM_OPTIONS[7:], record.get("symptoms"))
-                    + f"    血压：{underline_value(vitals.get('bloodPressure'))}"
-                    + f"    心率：{underline_value(vitals.get('heartRate'))}"
-                    + f"    血糖：{underline_value(vitals.get('bloodSugar'))}"
-                    + f"    尿酸：{underline_value(vitals.get('uricAcid'))}",
-                    styles["small"],
-                ),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ],
-            [
-                "",
-                box_paragraph(
-                    "月经："
-                    + checkbox_options(PDF_MENSTRUAL_OPTIONS, menstrual.get("selected"))
-                    + f"    夜尿：{underline_value(vitals.get('nightUrineCount'), 4)} 次/晚",
-                    styles["small"],
-                ),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ],
-            [
-                "",
-                box_paragraph(f"舌脉象：（{pdf_text(record.get('tonguePulse'), '')}）", styles["body"], min_lines=2),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ],
-            [
-                box_paragraph("调摄建议", styles["label"]),
-                box_paragraph("饮食：" + checkbox_options(PDF_DIET_OPTIONS, advice.get("diet")), styles["small"]),
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ],
-            [
-                "",
-                box_paragraph("生活注意：" + checkbox_options(PDF_LIFESTYLE_OPTIONS, advice.get("lifestyle")), styles["small"]),
-                "",
-                "",
-                "",
-                "",
-                "",
+                box_paragraph(record.get("allergyHistory"), styles["body"], min_lines=3),
                 "",
             ],
         ]
 
         spans: list[tuple[str, tuple[int, int], tuple[int, int]]] = [
             ("SPAN", (5, 1), (7, 1)),
-            ("SPAN", (1, 2), (7, 2)),
-            ("SPAN", (1, 3), (4, 3)),
-            ("SPAN", (6, 3), (7, 3)),
-            ("SPAN", (0, 4), (0, 7)),
-            ("SPAN", (1, 4), (7, 4)),
-            ("SPAN", (1, 5), (7, 5)),
-            ("SPAN", (1, 6), (7, 6)),
-            ("SPAN", (1, 7), (7, 7)),
-            ("SPAN", (0, 8), (0, 9)),
-            ("SPAN", (1, 8), (7, 8)),
-            ("SPAN", (1, 9), (7, 9)),
+            ("SPAN", (1, 2), (4, 2)),
+            ("SPAN", (6, 2), (7, 2)),
         ]
 
         display_visit_count = max(4, len(visits))
         for visit_index in range(display_visit_count):
             visit = visits[visit_index] if visit_index < len(visits) and isinstance(visits[visit_index], dict) else {}
+            vitals = visit_vitals(visit, legacy_vitals if visit_index == 0 else {})
             header_row = len(rows)
             rows.append(
                 [
                     box_paragraph(
                         f"{visit.get('label') or visit_label(visit_index)}\n\n时间：\n{format_visit_date(visit.get('date'))}",
                         styles["label"],
-                        min_lines=4,
+                        min_lines=6,
                     ),
                     "",
                     box_paragraph("辨证", styles["label"]),
                     "",
+                    "",
                     box_paragraph("内调方案", styles["label"]),
                     "",
-                    box_paragraph("回访情况", styles["label"]),
                     "",
                 ]
             )
@@ -965,23 +926,34 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
                 [
                     "",
                     "",
-                    box_paragraph(visit.get("diagnosis"), styles["body"], min_lines=5),
+                    box_paragraph(visit.get("diagnosis"), styles["body"], min_lines=4),
+                    "",
                     "",
                     box_paragraph(visit.get("plan"), styles["body"], min_lines=5),
                     "",
-                    box_paragraph(visit.get("followup"), styles["body"], min_lines=5),
+                    "",
+                ]
+            )
+            rows.append(
+                [
+                    "",
+                    "",
+                    box_paragraph("指标：" + visit_vitals_text(vitals), styles["small"], min_lines=1),
+                    "",
+                    "",
+                    "",
+                    "",
                     "",
                 ]
             )
             spans.extend(
                 [
-                    ("SPAN", (0, header_row), (1, header_row + 1)),
-                    ("SPAN", (2, header_row), (3, header_row)),
-                    ("SPAN", (4, header_row), (5, header_row)),
-                    ("SPAN", (6, header_row), (7, header_row)),
-                    ("SPAN", (2, header_row + 1), (3, header_row + 1)),
-                    ("SPAN", (4, header_row + 1), (5, header_row + 1)),
-                    ("SPAN", (6, header_row + 1), (7, header_row + 1)),
+                    ("SPAN", (0, header_row), (1, header_row + 2)),
+                    ("SPAN", (2, header_row), (4, header_row)),
+                    ("SPAN", (5, header_row), (7, header_row)),
+                    ("SPAN", (2, header_row + 1), (4, header_row + 1)),
+                    ("SPAN", (5, header_row + 1), (7, header_row + 2)),
+                    ("SPAN", (2, header_row + 2), (4, header_row + 2)),
                 ]
             )
 
@@ -1001,7 +973,6 @@ def build_record_pdf_story(records: list[dict[str, Any]], styles: dict[str, Any]
             ("VALIGN", (0, 0), (0, -1), "MIDDLE"),
             ("ALIGN", (0, 0), (-1, 1), "CENTER"),
             ("VALIGN", (0, 0), (-1, 1), "MIDDLE"),
-            ("ALIGN", (2, 10), (-1, -1), "CENTER"),
             ("PADDING", (0, 0), (-1, -1), 4),
             ("TOPPADDING", (0, 2), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 2), (-1, -1), 5),

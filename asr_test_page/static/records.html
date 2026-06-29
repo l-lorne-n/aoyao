@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>病历录入</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/records.css?v=20260628_recent_record1" />
-    <link rel="stylesheet" href="/gamepad-nav.css?v=20260628_recent_record1" />
+    <link rel="stylesheet" href="/records.css?v=20260628_diagnosis_records8" />
+    <link rel="stylesheet" href="/gamepad-nav.css?v=20260628_diagnosis_records1" />
   </head>
   <body>
     <main class="app">
@@ -31,7 +31,7 @@
             title="录制地址编号搜索"
           ></button>
         </div>
-        <input id="searchInput" class="search" placeholder="搜索姓名、电话、主诉" />
+        <input id="searchInput" class="search" placeholder="搜索姓名、电话、诊断" />
         <div id="recordList" class="record-list"></div>
         <div class="sidebar-footer">
           <button id="exportButton" class="full" type="button">导出病历</button>
@@ -118,24 +118,6 @@
             </div>
           </section>
 
-          <section class="section">
-            <div class="field-head">
-              <label for="chiefComplaint">主诉</label>
-            </div>
-            <div class="voice-textarea">
-              <textarea id="chiefComplaint" rows="5"></textarea>
-              <button
-                type="button"
-                class="voice-button voice-icon-button"
-                data-target="chiefComplaint"
-                data-gamepad-skip="true"
-                tabindex="-1"
-                aria-label="录制主诉"
-                title="录制主诉"
-              ></button>
-            </div>
-          </section>
-
           <section class="section two-col">
             <div>
               <div class="field-head">
@@ -173,83 +155,32 @@
             </div>
           </section>
 
-          <section class="section">
-            <h2>体征表现</h2>
-            <div id="symptomOptions" class="check-grid"></div>
-            <div class="grid vital-grid">
-              <label>
-                <span>血压</span>
-                <input id="bloodPressure" placeholder="如 120/80" />
-              </label>
-              <label>
-                <span>心率</span>
-                <input id="heartRate" />
-              </label>
-              <label>
-                <span>血糖</span>
-                <input id="bloodSugar" />
-              </label>
-              <label>
-                <span>尿酸</span>
-                <input id="uricAcid" />
-              </label>
-              <label>
-                <span>夜尿</span>
-                <input id="nightUrineCount" placeholder="次/晚" />
-              </label>
+          <section class="section visits-section">
+            <div class="section-head-inline">
+              <h2>诊断记录</h2>
             </div>
-          </section>
-
-          <section class="section">
-            <h2>月经</h2>
-            <div id="menstrualOptions" class="check-grid"></div>
+            <div id="visitBlocks" class="visit-blocks"></div>
+            <div class="visit-footer">
+              <button id="addVisitButton" type="button">增加诊断</button>
+            </div>
           </section>
 
           <section class="section">
             <div class="field-head">
-              <label for="tonguePulse">舌脉象</label>
+              <label for="notes">备注</label>
             </div>
             <div class="voice-textarea">
-              <textarea id="tonguePulse" rows="3"></textarea>
+              <textarea id="notes" rows="3"></textarea>
               <button
                 type="button"
                 class="voice-button voice-icon-button"
-                data-target="tonguePulse"
+                data-target="notes"
                 data-gamepad-skip="true"
                 tabindex="-1"
-                aria-label="录制舌脉象"
-                title="录制舌脉象"
+                aria-label="录制备注"
+                title="录制备注"
               ></button>
             </div>
-          </section>
-
-          <section class="section">
-            <h2>调摄建议</h2>
-            <div class="advice-grid">
-              <div>
-                <h3>饮食</h3>
-                <div id="dietAdviceOptions" class="check-grid"></div>
-              </div>
-              <div>
-                <h3>生活注意</h3>
-                <div id="lifestyleAdviceOptions" class="check-grid"></div>
-              </div>
-            </div>
-          </section>
-
-          <section class="section visits-section">
-            <div class="section-head-inline">
-              <h2>复诊记录</h2>
-            </div>
-            <div id="visitBlocks" class="visit-blocks"></div>
-            <div class="visit-footer">
-              <button id="addVisitButton" type="button">增加复诊</button>
-            </div>
-          </section>
-
-          <section class="section">
-            <label for="notes" class="plain-label">备注</label>
-            <textarea id="notes" rows="3"></textarea>
           </section>
       </form>
       </section>
@@ -327,7 +258,7 @@
       </div>
     </section>
 
-    <script src="/records.js?v=20260628_recent_record1"></script>
-    <script src="/gamepad-nav.js?v=20260628_recent_record1"></script>
+    <script src="/records.js?v=20260628_diagnosis_records8"></script>
+    <script src="/gamepad-nav.js?v=20260628_diagnosis_records5"></script>
   </body>
 </html>

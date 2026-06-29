@@ -28,6 +28,7 @@
   let sidebarReturnArmedAt = 0;
   let datePicker = null;
   let selectPicker = null;
+  let lastFormFocusTargetId = "";
   let nativeGamepadState = {
     available: false,
     direction: "",
@@ -66,9 +67,26 @@
 
   function focusElement(element) {
     if (!element) return;
+    const previousElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const skipPageScroll = shouldKeepVisitMetricsInPlace(previousElement, element);
+    rememberFormFocus(element);
     markGamepadFocus(element);
     element.focus({ preventScroll: true });
-    scrollFocusedElementIntoView(element);
+    if (!skipPageScroll) scrollFocusedElementIntoView(element);
+  }
+
+  function rememberFormFocus(element) {
+    const form = document.querySelector("#recordForm");
+    if (element instanceof HTMLElement && element.id && form && form.contains(element)) {
+      lastFormFocusTargetId = element.id;
+    }
+  }
+
+  function shouldKeepVisitMetricsInPlace(previousElement, nextElement) {
+    if (!(previousElement instanceof HTMLElement) || !(nextElement instanceof HTMLElement)) return false;
+    if (!nextElement.closest(".visit-metrics-wrap")) return false;
+    const previousVisit = previousElement.closest(".visit-row");
+    return Boolean(previousVisit && previousVisit === nextElement.closest(".visit-row"));
   }
 
   function stickyTopOffset() {
@@ -182,7 +200,7 @@
       [
         ".check-grid",
         ".basic-grid",
-        ".vital-grid",
+        ".visit-metrics-grid",
         ".visit-row",
         ".gamepad-date-header",
         ".gamepad-date-grid",
@@ -667,7 +685,15 @@
 
     if (name === "x") {
       const saveButton = document.querySelector("#saveButton");
-      if (saveButton && !saveButton.disabled) saveButton.click();
+      if (saveButton && !saveButton.disabled) {
+        const restoreTarget = currentFormFocusTarget();
+        if (restoreTarget) {
+          window.dispatchEvent(new CustomEvent("aoyao:save-via-gamepad", {
+            detail: { target: restoreTarget.id },
+          }));
+        }
+        saveButton.click();
+      }
       return;
     }
 
@@ -684,6 +710,19 @@
     if (name === "a") {
       activateCurrentElement();
     }
+  }
+
+  function currentFormFocusTarget() {
+    const form = document.querySelector("#recordForm");
+    if (!form) return null;
+    const elements = getFocusableElements();
+    const current = getCurrentElement(elements) || document.activeElement;
+    if (current instanceof HTMLElement && current.id && form.contains(current)) {
+      rememberFormFocus(current);
+      return current;
+    }
+    const fallback = lastFormFocusTargetId ? document.getElementById(lastFormFocusTargetId) : null;
+    return fallback instanceof HTMLElement && form.contains(fallback) && isVisible(fallback) ? fallback : null;
   }
 
   function activateCurrentElement() {
@@ -1369,8 +1408,11 @@
   });
 
   document.addEventListener("focusin", (event) => {
-    if (document.body.classList.contains("gamepad-nav-active") && event.target instanceof HTMLElement) {
-      markGamepadFocus(event.target);
+    if (event.target instanceof HTMLElement) {
+      rememberFormFocus(event.target);
+      if (document.body.classList.contains("gamepad-nav-active")) {
+        markGamepadFocus(event.target);
+      }
     }
   });
 
@@ -1390,6 +1432,15 @@
       return;
     }
     clearGamepadFocus();
+  });
+
+  window.addEventListener("aoyao:restore-gamepad-focus", (event) => {
+    const targetId = event.detail && event.detail.target;
+    if (!targetId) return;
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(targetId);
+      if (target && isFocusableCandidate(target) && isVisible(target)) focusElement(target);
+    });
   });
 
   document.addEventListener("pointerdown", (event) => {

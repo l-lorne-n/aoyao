@@ -282,11 +282,6 @@ h3 {
   grid-template-columns: 1.05fr 0.7fr 1.05fr 0.58fr 0.6fr 1fr 0.9fr;
 }
 
-.vital-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin-top: 12px;
-}
-
 label span,
 .plain-label,
 .field-head label {
@@ -458,8 +453,7 @@ textarea:focus {
   opacity: 1;
 }
 
-.two-col,
-.advice-grid {
+.two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
@@ -497,15 +491,80 @@ textarea:focus {
 
 .visit-row {
   display: grid;
-  grid-template-columns: 110px repeat(3, minmax(0, 1fr)) 172px;
+  grid-template-columns: 96px minmax(0, 1.1fr) minmax(0, 0.95fr) 132px;
   gap: 10px;
   align-items: start;
 }
 
+.visit-row > * {
+  min-width: 0;
+}
+
 .visit-title {
-  font-weight: 800;
+  font-size: 20px;
+  font-weight: 850;
+  line-height: 1.25;
   color: #263542;
   padding-top: 34px;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 0;
+  justify-self: center;
+  align-self: start;
+}
+
+.visit-diagnosis-field {
+  min-width: 0;
+}
+
+.visit-metrics-wrap {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.visit-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(104px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.visit-metric-field {
+  min-width: 0;
+}
+
+.visit-metric-field span {
+  margin-bottom: 4px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.visit-metric-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 5px;
+}
+
+.visit-metric-input input {
+  height: 32px;
+  padding: 0 7px;
+  font-size: 14px;
+}
+
+.visit-metric-input .voice-icon-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.visit-metric-input .voice-icon-button::before {
+  top: 7px;
+}
+
+.visit-metric-input .voice-icon-button::after {
+  top: 18px;
 }
 
 .visit-footer {
@@ -628,11 +687,11 @@ textarea:focus {
 
 .voice-panel {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  right: 24px;
+  bottom: 24px;
   z-index: 40;
-  width: min(560px, calc(100vw - 36px));
-  padding: 14px;
+  width: min(760px, calc(100vw - 48px));
+  padding: 20px;
   box-shadow: 0 14px 40px rgba(22, 35, 45, 0.18);
 }
 
@@ -844,14 +903,38 @@ body.voice-panel-open .app {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+#voiceTitle {
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+.voice-panel #voiceMeta {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.voice-panel #voiceResult {
+  min-height: 150px;
+  padding: 12px 14px;
+  font-size: 20px;
+  line-height: 1.75;
 }
 
 .voice-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   justify-content: flex-end;
-  margin-top: 10px;
+  margin-top: 14px;
+}
+
+.voice-actions button {
+  min-width: 88px;
+  min-height: 46px;
+  padding: 0 18px;
+  font-size: 18px;
 }
 
 @media (max-width: 1100px) {
@@ -868,17 +951,20 @@ body.voice-panel-open .app {
     max-height: 240px;
   }
 
-  .basic-grid,
-  .vital-grid {
+  .basic-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .visit-row {
-    grid-template-columns: 96px repeat(2, minmax(0, 1fr));
+    grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .visit-date-field {
     grid-column: 2 / -1;
+  }
+
+  .visit-metrics-grid {
+    grid-template-columns: repeat(3, minmax(82px, 1fr));
   }
 
   .check-grid {
@@ -893,9 +979,7 @@ body.voice-panel-open .app {
 
   .form-toolbar,
   .two-col,
-  .advice-grid,
   .basic-grid,
-  .vital-grid,
   .visit-row {
     grid-template-columns: 1fr;
     display: grid;
@@ -903,10 +987,17 @@ body.voice-panel-open .app {
 
   .visit-title {
     padding-top: 0;
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    justify-self: start;
   }
 
   .visit-date-field {
     grid-column: auto;
+  }
+
+  .visit-metrics-grid {
+    grid-template-columns: repeat(2, minmax(96px, 1fr));
   }
 
   .toolbar-actions {
